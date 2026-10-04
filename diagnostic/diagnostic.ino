@@ -206,7 +206,7 @@ void testMPU6050() {
       Serial.print(ax, 2);
       Serial.print(F(" aY="));
       Serial.print(ay, 2);
-      Serial.print(F(" aZ=");
+      Serial.print(F(" aZ="));
       Serial.println(az, 2);
       successCount++;
     } else {
@@ -264,11 +264,11 @@ void testWaterSensor() {
   if (maxVal - minVal > 10) {
     Serial.println(F("  → SENSOR HIDUP ✓ (ada variasi nilai)"));
     if (avgVal < 100) {
-      Serial.println(F("    Status: DRY (kering, ~0V)");
+      Serial.println(F("    Status: DRY (kering, ~0V)"));
     } else if (avgVal > 700) {
-      Serial.println(F("    Status: WET (basah, ~5V)");
+      Serial.println(F("    Status: WET (basah, ~5V)"));
     } else {
-      Serial.println(F("    Status: Medium (semi-basah)");
+      Serial.println(F("    Status: Medium (semi-basah)"));
     }
   } else {
     Serial.println(F("  → SENSOR MATI atau LEPAS ✗ (nilai statis)"));
@@ -373,7 +373,7 @@ void scanI2C() {
     Serial.print(F("✓ RESULT: "));
     Serial.print(foundCount);
     Serial.println(F(" device(s) found"));
-    Serial.println(F("  MPU6050 seharusnya di 0x68");
+    Serial.println(F("  MPU6050 seharusnya di 0x68"));
   }
   Serial.println(F("└────────────────────────────────────────┘"));
 }
