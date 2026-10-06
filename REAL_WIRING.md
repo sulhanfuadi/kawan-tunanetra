@@ -17,8 +17,8 @@
 | | **`ECHO`** | **D2** | Echo return pulse input |
 | | **`GND`** | **GND** | System ground reference |
 | **HC-SR04 (Ground Drop-off)** | **`VCC`** | **5V** | 5V DC power supply rail |
-| | **`TRIG`** | **D11** | Ultrasonic trigger pulse output (10 us TTL) |
-| | **`ECHO`** | **D10** | Echo return pulse input |
+| | **`TRIG`** | **D9** | Ultrasonic trigger pulse output (10 us TTL) |
+| | **`ECHO`** | **D8** | Echo return pulse input |
 | | **`GND`** | **GND** | System ground reference |
 | **MPU6050 (GY-521 IMU)** | **`VCC`** | **5V** | 5V DC power supply rail (onboard 3.3V LDO regulator) |
 | | **`GND`** | **GND** | System ground reference |
@@ -104,3 +104,76 @@ Before applying power:
 - [ ] Confirm no sensor 5V line is accidentally shorted to ground with a multimeter in resistance mode.
 - [ ] Check that MPU6050 `SDA` is tied to **A4** and `SCL` to **A5**.
 - [ ] Secure all wiring runs along the crutch shaft using cable ties or spiral wrap to prevent snagging during movement.
+
+---
+
+## 6. Prosedur Pengujian Hardware Mandiri (Skenario 3: Uji Komponen Satu per Satu)
+
+Di **Skenario 3** (menggunakan suite diagnostik pada `tools/three_stage_diagnostic/three_stage_diagnostic.ino` atau Serial Monitor pada baud rate **115200**), Anda **bebas memilih** mau menguji secara **berurutan satu per satu (sangat direkomendasikan)** atau langsung menguji semuanya sekaligus.
+
+Karena di meja Anda sensornya masih terpisah-pisah, **cara terbaik adalah menguji 1 komponen secara bergantian**:
+
+---
+
+### Cara Input Skenario 3 (Uji Komponen Satu per Satu):
+
+Cukup ketik **nama komponennya** di baris input Serial Monitor lalu tekan **Enter**:
+
+#### 1. Uji Sensor Ultrasonik Depan (HC-SR04)
+* **Kabel yang dicolokkan (4 kabel):**
+  * `VCC` ➡️ **5V**
+  * `GND` ➡️ **GND**
+  * `TRIG` ➡️ **D3**
+  * `ECHO` ➡️ **D2**
+* **Input di Serial Monitor:** Ketik **`DEPAN`** lalu tekan Enter.
+* **Hasil:** Sistem akan membaca jarak cm di depan sensor secara langsung. (Jika kabel terbalik, program akan memberi tahu: *"Kabel D2 dan D3 terbalik!"*).
+
+---
+
+#### 2. Uji Sensor Ultrasonik Bawah (HC-SR04)
+* **Kabel yang dicolokkan (4 kabel):**
+  * `VCC` ➡️ **5V**
+  * `GND` ➡️ **GND**
+  * `TRIG` ➡️ **D9** *(Pin baru)*
+  * `ECHO` ➡️ **D8** *(Pin baru)*
+* **Input di Serial Monitor:** Ketik **`BAWAH`** lalu tekan Enter.
+* **Hasil:** Membaca jarak cm untuk deteksi turunan/lubang.
+
+---
+
+#### 3. Uji Sensor IMU MPU6050 (Kemiringan Tongkat)
+* **Kabel yang dicolokkan (4 kabel):**
+  * `VCC` ➡️ **5V** (pastikan lampu LED merah/biru kecil di modul GY-521 menyala)
+  * `GND` ➡️ **GND**
+  * `SDA` ➡️ **A4**
+  * `SCL` ➡️ **A5**
+* **Input di Serial Monitor:** Ketik **`IMU`** lalu tekan Enter.
+* **Hasil:** Memindai alamat I2C `0x68` dan konfirmasi komunikasi data.
+
+---
+
+#### 4. Uji Sensor Air
+* **Kabel yang dicolokkan (3 kabel):**
+  * `+` / `VCC` ➡️ **5V**
+  * `-` / `GND` ➡️ **GND**
+  * `S` / Signal ➡️ **A0**
+* **Input di Serial Monitor:** Ketik **`AIR`** lalu tekan Enter.
+* **Hasil:** Menampilkan nilai ADC mentah (akan berubah jika pelat disentuh tangan basah / air).
+
+---
+
+#### 5. Uji Motor Getar Haptic
+* **Kabel yang dicolokkan (3 kabel):**
+  * `VCC` ➡️ **5V**
+  * `GND` ➡️ **GND**
+  * `SIG` / `IN` ➡️ **D5**
+* **Input di Serial Monitor:** Ketik **`MOTOR`** lalu tekan Enter.
+* **Hasil:** Motor akan bergetar di tangan Anda selama 1 detik.
+
+---
+
+### Ingin Tes Semuanya Sekaligus?
+Jika nanti semua sensor sudah terpasang rapi di breadboard:
+* Cukup ketik **`ALL`** atau **`3`** lalu tekan Enter.
+* Sistem akan memindai kelima komponen di atas secara otomatis dalam satu klik!
+

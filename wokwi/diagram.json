@@ -25,8 +25,8 @@
 
     [ "down:VCC", "nano:5V", "red", [ "h100", "v-110" ] ],
     [ "down:GND", "nano:GND.2", "black", [ "h115", "v-90" ] ],
-    [ "down:TRIG", "nano:11", "green", [ "h130", "v-70" ] ],
-    [ "down:ECHO", "nano:10", "blue", [ "h145", "v-55" ] ],
+    [ "down:TRIG", "nano:9", "green", [ "h130", "v-70" ] ],
+    [ "down:ECHO", "nano:8", "blue", [ "h145", "v-55" ] ],
     [ "water:VCC", "nano:5V", "red", [ "h145", "v-155" ] ],
     [ "water:GND", "nano:GND.2", "black", [ "h160", "v-135" ] ],
     [ "water:SIG", "nano:A0", "orange", [ "h175", "v-115" ] ],

@@ -22,8 +22,8 @@ const byte PIN_FRONT_TRIG = 3;    // HC-SR04 Depan Trig
 const byte PIN_FALL_TEST  = 4;    // Wokwi test button (D4 ke GND)
 const byte PIN_VIBRATION  = 5;    // PWM Motor Getar SIG
 const byte PIN_BUZZER     = 6;    // Active Buzzer via BC547 base
-const byte PIN_DOWN_ECHO  = 10;   // HC-SR04 Bawah Echo
-const byte PIN_DOWN_TRIG  = 11;   // HC-SR04 Bawah Trig
+const byte PIN_DOWN_ECHO  = 8;    // HC-SR04 Bawah Echo
+const byte PIN_DOWN_TRIG  = 9;    // HC-SR04 Bawah Trig
 const byte PIN_WATER_RAW  = A0;   // Sensor Air Analog (A0)
 
 const byte MPU_ADDR = 0x68;       // Alamat I2C MPU6050 (A4=SDA, A5=SCL)
@@ -80,27 +80,69 @@ float simTiltDeg    = 12.0;
 int simWaterVal     = 220;
 String serialBuffer = "";
 
+// Manual Override / Uji Aktuator Terpisah
+bool overrideMotor = false;
+byte manualMotorPwm = 0;
+unsigned long overrideMotorUntilMs = 0;
+
+bool overrideBuzzer = false;
+bool manualBuzzerState = false;
+unsigned long overrideBuzzerUntilMs = 0;
+
 void processSerialCommand(String cmd);
 void checkSerialInput();
 
-void writeMPU(byte reg, byte value) {
-  Wire.beginTransmission(MPU_ADDR);
+byte mpuAddr = 0x68;              // Alamat I2C MPU6050 dinamis (0x68 atau 0x69)
+bool frontPinsInverted = false;    // Status apakah pin Trig/Echo depan tertukar
+bool downPinsInverted = false;     // Status apakah pin Trig/Echo bawah tertukar
+
+bool writeMPU(byte reg, byte value) {
+  Wire.beginTransmission(mpuAddr);
   Wire.write(reg);
   Wire.write(value);
-  Wire.endTransmission(true);
+  byte err = Wire.endTransmission(true);
+  return (err == 0);
 }
 
-void setupMPU() {
+byte scanI2C() {
   Wire.begin();
-  writeMPU(0x6B, 0x00); // Wake MPU6050
-  writeMPU(0x1C, 0x00); // Accelerometer range +/-2g
+  #if defined(WIRE_HAS_TIMEOUT)
+    Wire.setWireTimeout(3000, true);
+  #endif
+
+  // Cek 0x68 (Default AD0 GND/Float)
+  Wire.beginTransmission(0x68);
+  if (Wire.endTransmission() == 0) return 0x68;
+
+  // Cek 0x69 (AD0 VCC/Pull-up)
+  Wire.beginTransmission(0x69);
+  if (Wire.endTransmission() == 0) return 0x69;
+
+  // Scan seluruh rentang alamat
+  for (byte a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) return a;
+  }
+  return 0; // Tidak ada satupun perangkat I2C merespons
+}
+
+bool setupMPU() {
+  byte detected = scanI2C();
+  if (detected == 0) {
+    return false; // Jalur I2C tidak merespons
+  }
+  mpuAddr = detected;
+
+  bool okWake  = writeMPU(0x6B, 0x00); // Wake MPU6050
+  bool okAccel = writeMPU(0x1C, 0x00); // Accelerometer range +/-2g
+  return (okWake && okAccel);
 }
 
 bool readMPUAccel(float &ax, float &ay, float &az) {
-  Wire.beginTransmission(MPU_ADDR);
+  Wire.beginTransmission(mpuAddr);
   Wire.write(0x3B);
   if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom((int)MPU_ADDR, 6, true) != 6) return false;
+  if (Wire.requestFrom((int)mpuAddr, 6, true) != 6) return false;
 
   int16_t rawX = (Wire.read() << 8) | Wire.read();
   int16_t rawY = (Wire.read() << 8) | Wire.read();
@@ -128,12 +170,92 @@ float readUltrasonicCm(byte trigPin, byte echoPin, bool &connected) {
   return pulse / 58.0;
 }
 
+// Pembacaan cerdas sensor depan dengan deteksi otomatis jika kabel Trig(D3) & Echo(D2) tertukar
+float readFrontUltrasonic(bool &connected) {
+  if (!frontPinsInverted) {
+    float val = readUltrasonicCm(PIN_FRONT_TRIG, PIN_FRONT_ECHO, connected);
+    if (connected) return val;
+
+    // Coba uji coba apakah pin D2 dan D3 tertukar secara fisik
+    pinMode(PIN_FRONT_ECHO, OUTPUT);
+    pinMode(PIN_FRONT_TRIG, INPUT);
+    float invVal = readUltrasonicCm(PIN_FRONT_ECHO, PIN_FRONT_TRIG, connected);
+    if (connected) {
+      frontPinsInverted = true;
+      Serial.println(F("[AUTO-DETECT] Sensor Depan: Pin D2 dan D3 terpasang terbalik. Auto-swap aktif."));
+      return invVal;
+    }
+    // Jika tetap gagal, kembalikan konfigurasi semula
+    pinMode(PIN_FRONT_TRIG, OUTPUT);
+    pinMode(PIN_FRONT_ECHO, INPUT);
+    connected = false;
+    return -1.0;
+  } else {
+    // Mode inverted aktif
+    float val = readUltrasonicCm(PIN_FRONT_ECHO, PIN_FRONT_TRIG, connected);
+    if (connected) return val;
+
+    // Uji apakah sudah dibalikkan ke normal oleh pengguna
+    pinMode(PIN_FRONT_TRIG, OUTPUT);
+    pinMode(PIN_FRONT_ECHO, INPUT);
+    float normVal = readUltrasonicCm(PIN_FRONT_TRIG, PIN_FRONT_ECHO, connected);
+    if (connected) {
+      frontPinsInverted = false;
+      return normVal;
+    }
+    pinMode(PIN_FRONT_ECHO, OUTPUT);
+    pinMode(PIN_FRONT_TRIG, INPUT);
+    connected = false;
+    return -1.0;
+  }
+}
+
+// Pembacaan cerdas sensor bawah dengan deteksi otomatis jika kabel Trig(D9) & Echo(D8) tertukar
+float readDownUltrasonic(bool &connected) {
+  if (!downPinsInverted) {
+    float val = readUltrasonicCm(PIN_DOWN_TRIG, PIN_DOWN_ECHO, connected);
+    if (connected) return val;
+
+    // Coba uji coba apakah pin D8 dan D9 tertukar secara fisik
+    pinMode(PIN_DOWN_ECHO, OUTPUT);
+    pinMode(PIN_DOWN_TRIG, INPUT);
+    float invVal = readUltrasonicCm(PIN_DOWN_ECHO, PIN_DOWN_TRIG, connected);
+    if (connected) {
+      downPinsInverted = true;
+      Serial.println(F("[AUTO-DETECT] Sensor Bawah: Pin D8 dan D9 terpasang terbalik. Auto-swap aktif."));
+      return invVal;
+    }
+    // Jika tetap gagal, kembalikan konfigurasi semula
+    pinMode(PIN_DOWN_TRIG, OUTPUT);
+    pinMode(PIN_DOWN_ECHO, INPUT);
+    connected = false;
+    return -1.0;
+  } else {
+    // Mode inverted aktif
+    float val = readUltrasonicCm(PIN_DOWN_ECHO, PIN_DOWN_TRIG, connected);
+    if (connected) return val;
+
+    // Uji apakah sudah dibalikkan ke normal oleh pengguna
+    pinMode(PIN_DOWN_TRIG, OUTPUT);
+    pinMode(PIN_DOWN_ECHO, INPUT);
+    float normVal = readUltrasonicCm(PIN_DOWN_TRIG, PIN_DOWN_ECHO, connected);
+    if (connected) {
+      downPinsInverted = false;
+      return normVal;
+    }
+    pinMode(PIN_DOWN_ECHO, OUTPUT);
+    pinMode(PIN_DOWN_TRIG, INPUT);
+    connected = false;
+    return -1.0;
+  }
+}
+
 void calibrateDownBaseline() {
   float total = 0.0;
   byte valid = 0;
   bool isConn = false;
   for (byte i = 0; i < 12; i++) {
-    float value = readUltrasonicCm(PIN_DOWN_TRIG, PIN_DOWN_ECHO, isConn);
+    float value = readDownUltrasonic(isConn);
     if (isConn && value >= 5.0 && value <= 120.0) {
       total += value;
       valid++;
@@ -165,6 +287,14 @@ void processSerialCommand(String cmd) {
     Serial.println(F("  DOWN <cm>    -> Jarak bawah/turunan (misal: DOWN 55)"));
     Serial.println(F("  TILT <deg>   -> Kemiringan tongkat (misal: TILT 75)"));
     Serial.println(F("  WATER <val>  -> Sensor air 0-1023 (misal: WATER 750)"));
+    Serial.println(F(""));
+    Serial.println(F("Uji Aktuator Fisik:"));
+    Serial.println(F("  TEST MOTOR    -> Getarkan motor selama 1.5 detik (Pin D5)"));
+    Serial.println(F("  MOTOR ON/OFF  -> Nyalakan / matikan motor getar terus-menerus"));
+    Serial.println(F("  TEST BUZZER   -> Bunyikan buzzer pola beep selama 1.5 detik (Pin D6)"));
+    Serial.println(F("  BUZZER ON/OFF -> Nyalakan / matikan buzzer terus-menerus"));
+    Serial.println(F("  TEST OUTPUT   -> Self-test motor getar & buzzer bersamaan"));
+    Serial.println(F("  STOP          -> Matikan semua uji aktuator manual"));
     Serial.println(F(""));
     Serial.println(F("Skenario Cepat (Preset Wokwi):"));
     Serial.println(F("  FALL    -> Simulasi Tongkat Jatuh (Alarm SOS)"));
@@ -217,13 +347,191 @@ void processSerialCommand(String cmd) {
     return;
   }
 
+  if (upper == "DIAG" || upper == "CHECK" || upper == "TEST ALL" || upper == "TEST:ALL") {
+    Serial.println(F("\n--- [HASIL DIAGNOSA KONEKSI SENSOR FISIK] ---"));
+    
+    // Test 1: Depan
+    bool connF = false;
+    float distF = readFrontUltrasonic(connF);
+    Serial.print(F("1. Sensor Depan (D2/D3): "));
+    if (connF) {
+      Serial.print(F("TERHUBUNG (Jarak: ")); Serial.print(distF, 1); Serial.print(F(" cm)"));
+      if (frontPinsInverted) Serial.print(F(" [PIN D2/D3 TERBALIK AUTO-SWAPPED]"));
+      Serial.println();
+    } else {
+      Serial.println(F("LEPAS (Echo timeout. Coba tukar pin D2 & D3 atau cek VCC 5V)"));
+    }
+
+    // Test 2: Bawah
+    bool connD = false;
+    float distD = readDownUltrasonic(connD);
+    Serial.print(F("2. Sensor Bawah (D8/D9): "));
+    if (connD) {
+      Serial.print(F("TERHUBUNG (Jarak: ")); Serial.print(distD, 1); Serial.print(F(" cm)"));
+      if (downPinsInverted) Serial.print(F(" [PIN D8/D9 TERBALIK AUTO-SWAPPED]"));
+      Serial.println();
+    } else {
+      Serial.println(F("LEPAS / KABEL TIDAK MERESPONS (Echo timeout 25ms)"));
+    }
+
+    // Test 3: MPU6050
+    Serial.print(F("3. Sensor IMU MPU6050 (A4/A5 I2C): "));
+    byte i2cAddr = scanI2C();
+    if (i2cAddr != 0) {
+      mpuAddr = i2cAddr;
+      float ax, ay, az;
+      if (readMPUAccel(ax, ay, az)) {
+        Serial.print(F("TERHUBUNG pada 0x")); Serial.print(i2cAddr, HEX);
+        Serial.print(F(" (Accel Z: ")); Serial.print(az, 2); Serial.println(F("g)"));
+      } else {
+        Serial.print(F("ALAMAT 0x")); Serial.print(i2cAddr, HEX); Serial.println(F(" MERESPONS TAPI GAGAL BACA DATA"));
+      }
+    } else {
+      Serial.println(F("LEPAS (Tidak ada perangkat I2C). Cek: 1. LED modul nyala? 2. SDA ke A4, SCL ke A5"));
+    }
+
+    // Test 4: Sensor Air
+    int wVal = analogRead(PIN_WATER_RAW);
+    Serial.print(F("4. Sensor Air (A0): "));
+    Serial.print(F("ADC RAW = ")); Serial.print(wVal);
+    if (wVal < 50) Serial.println(F(" (Kering / Mengambang)"));
+    else if (wVal > 650) Serial.println(F(" (Basah Terdeteksi)"));
+    else Serial.println(F(" (Lembab Sedang)"));
+
+    Serial.println(F("--------------------------------------------\n"));
+    return;
+  }
+
+  if (upper == "TEST FRONT" || upper == "TEST:FRONT") {
+    bool conn = false;
+    float d = readFrontUltrasonic(conn);
+    Serial.print(F("[TEST SENSOR DEPAN] "));
+    if (conn) {
+      Serial.print(F("TERHUBUNG -> Jarak = ")); Serial.print(d, 1); Serial.print(F(" cm"));
+      if (frontPinsInverted) Serial.print(F(" (Pin D2/D3 terbalik, auto-swapped)"));
+      Serial.println();
+    } else {
+      Serial.println(F("LEPAS -> Echo timeout. Coba tukar kabel pin D2 dan D3, serta pastikan VCC dapat 5V!"));
+    }
+    return;
+  }
+
+  if (upper == "TEST DOWN" || upper == "TEST:DOWN") {
+    bool conn = false;
+    float d = readDownUltrasonic(conn);
+    Serial.print(F("[TEST SENSOR BAWAH] "));
+    if (conn) {
+      Serial.print(F("TERHUBUNG -> Jarak = ")); Serial.print(d, 1); Serial.print(F(" cm"));
+      if (downPinsInverted) Serial.print(F(" (Pin D8/D9 terbalik, auto-swapped)"));
+      Serial.println();
+    } else {
+      Serial.println(F("LEPAS -> Tidak ada pulsa echo dari pin D8. Cek kabel VCC, GND, D8, D9!"));
+    }
+    return;
+  }
+
+  if (upper == "TEST IMU" || upper == "TEST:IMU" || upper == "TEST MPU") {
+    Serial.print(F("[TEST MPU6050] "));
+    byte addr = scanI2C();
+    if (addr != 0) {
+      mpuAddr = addr;
+      float ax, ay, az;
+      readMPUAccel(ax, ay, az);
+      Serial.print(F("TERHUBUNG di 0x")); Serial.print(addr, HEX);
+      Serial.print(F(" -> Accel X=")); Serial.print(ax, 2);
+      Serial.print(F(" Y=")); Serial.print(ay, 2);
+      Serial.print(F(" Z=")); Serial.println(az, 2);
+    } else {
+      Serial.println(F("LEPAS -> Jalur I2C tidak merespons! Pastikan LED modul menyala, SDA ke A4, SCL ke A5"));
+    }
+    return;
+  }
+
+  if (upper == "TEST WATER" || upper == "TEST:WATER") {
+    int val = analogRead(PIN_WATER_RAW);
+    Serial.print(F("[TEST SENSOR AIR A0] Terbaca ADC: "));
+    Serial.print(val);
+    Serial.println(val > 650 ? F(" -> BASAH") : F(" -> KERING"));
+    return;
+  }
+
+  // ================= UJI SIMULASI & TRIGGER AKTUATOR =================
+  if (upper == "TEST MOTOR" || upper == "TEST:MOTOR" || upper == "VIBE" || upper == "GETAR") {
+    overrideMotorUntilMs = millis() + 1500;
+    manualMotorPwm = 220;
+    Serial.println(F("[UJI AKTUATOR] Motor Getar AKTIF selama 1.5 detik (PWM 220 di Pin D5)..."));
+    return;
+  }
+
+  if (upper == "MOTOR ON" || upper == "MOTOR:ON") {
+    overrideMotor = true;
+    manualMotorPwm = 220;
+    overrideMotorUntilMs = 0;
+    Serial.println(F("[UJI AKTUATOR] Motor Getar DINYALAKAN (Ketik MOTOR OFF untuk mematikan)."));
+    return;
+  }
+
+  if (upper == "MOTOR OFF" || upper == "MOTOR:OFF") {
+    overrideMotor = false;
+    manualMotorPwm = 0;
+    overrideMotorUntilMs = 0;
+    analogWrite(PIN_VIBRATION, 0);
+    Serial.println(F("[UJI AKTUATOR] Motor Getar DIMATIKAN."));
+    return;
+  }
+
+  if (upper == "TEST BUZZER" || upper == "TEST:BUZZER" || upper == "BEEP" || upper == "BUNYI") {
+    overrideBuzzerUntilMs = millis() + 1500;
+    Serial.println(F("[UJI AKTUATOR] Buzzer AKTIF pola Beep selama 1.5 detik di Pin D6..."));
+    return;
+  }
+
+  if (upper == "BUZZER ON" || upper == "BUZZER:ON") {
+    overrideBuzzer = true;
+    manualBuzzerState = true;
+    overrideBuzzerUntilMs = 0;
+    driveBuzzer(true);
+    Serial.println(F("[UJI AKTUATOR] Buzzer DINYALAKAN terus-menerus (Ketik BUZZER OFF untuk mematikan)."));
+    return;
+  }
+
+  if (upper == "BUZZER OFF" || upper == "BUZZER:OFF") {
+    overrideBuzzer = false;
+    manualBuzzerState = false;
+    overrideBuzzerUntilMs = 0;
+    driveBuzzer(false);
+    Serial.println(F("[UJI AKTUATOR] Buzzer DIMATIKAN."));
+    return;
+  }
+
+  if (upper == "TEST OUTPUT" || upper == "TEST ACTUATOR" || upper == "TEST ACTUATORS" || upper == "TEST:ACTUATORS") {
+    Serial.println(F("[UJI AKTUATOR] Memulai Self-Test Semua Aktuator: Motor getar lalu Buzzer..."));
+    selfTest();
+    Serial.println(F("[UJI AKTUATOR] Uji coba aktuator selesai!"));
+    return;
+  }
+
+  if (upper == "STOP" || upper == "ACTUATOR OFF" || upper == "OUTPUT OFF") {
+    overrideMotor = false;
+    manualMotorPwm = 0;
+    overrideMotorUntilMs = 0;
+    analogWrite(PIN_VIBRATION, 0);
+
+    overrideBuzzer = false;
+    manualBuzzerState = false;
+    overrideBuzzerUntilMs = 0;
+    driveBuzzer(false);
+    Serial.println(F("[UJI AKTUATOR] Semua aktuator manual DIMATIKAN."));
+    return;
+  }
+
   if (upper == "NORMAL" || upper == "RESET" || upper == "DEMO:NORMAL") {
-    demoMode = true;
+    demoMode = false;
     simFrontCm = 120.0;
     simDownCm = downBaselineCm;
     simTiltDeg = 12.0;
     simWaterVal = 180;
-    Serial.println(F("[SISTEM] PRESET AKTIF: Kondisi Aman Normal"));
+    Serial.println(F("[SISTEM] KEMBALI KE SENSOR FISIK ASLI"));
     return;
   }
 
@@ -304,11 +612,11 @@ void updateInputs() {
   } else {
     // Mode Fisik Nyata: Baca sensor fisik
     // 1. Baca sensor depan
-    frontCm = readUltrasonicCm(PIN_FRONT_TRIG, PIN_FRONT_ECHO, frontConnected);
+    frontCm = readFrontUltrasonic(frontConnected);
     delayMicroseconds(2500); // Cegah cross-talk ultrasonik
     
-    // 2. Baca sensor bawah
-    downCm = readUltrasonicCm(PIN_DOWN_TRIG, PIN_DOWN_ECHO, downConnected);
+    // 2. Baca sensor bawah (dengan deteksi otomatis pin D8/D9)
+    downCm = readDownUltrasonic(downConnected);
     
     // Hitung delta bawah hanya jika sensor bawah terhubung
     if (downConnected) {
@@ -318,8 +626,9 @@ void updateInputs() {
       dropDeltaCm = 0;
     }
 
-    // 3. Baca sensor air
+    // 3. Baca sensor air (nilai normal udara 120-450, basah >650, lepas/GND <60)
     waterValue = analogRead(PIN_WATER_RAW);
+    waterConnected = (waterValue >= 100);
 
     // 4. Baca MPU6050
     float ax = 0.0, ay = 0.0, az = 1.0;
@@ -426,9 +735,40 @@ void driveBuzzer(bool on) {
 
 void updateOutputs(AlertState state) {
   unsigned long now = millis();
-  vibrationOn = vibrationPattern(state, now);
-  analogWrite(PIN_VIBRATION, vibrationOn ? 220 : 0);
-  driveBuzzer(buzzerPattern(state, now));
+
+  // 1. Motor Getar: Cek apakah sedang dalam mode uji/override manual
+  if (overrideMotorUntilMs > 0) {
+    if (now < overrideMotorUntilMs) {
+      vibrationOn = true;
+      analogWrite(PIN_VIBRATION, manualMotorPwm > 0 ? manualMotorPwm : 220);
+    } else {
+      overrideMotorUntilMs = 0;
+      vibrationOn = false;
+      analogWrite(PIN_VIBRATION, 0);
+    }
+  } else if (overrideMotor) {
+    vibrationOn = (manualMotorPwm > 0);
+    analogWrite(PIN_VIBRATION, manualMotorPwm);
+  } else {
+    vibrationOn = vibrationPattern(state, now);
+    analogWrite(PIN_VIBRATION, vibrationOn ? 220 : 0);
+  }
+
+  // 2. Buzzer: Cek apakah sedang dalam mode uji/override manual
+  if (overrideBuzzerUntilMs > 0) {
+    if (now < overrideBuzzerUntilMs) {
+      // Pola beep berselang-seling (150ms ON, 150ms OFF) agar jelas terdengar
+      bool beep = ((now / 150) % 2 == 0);
+      driveBuzzer(beep);
+    } else {
+      overrideBuzzerUntilMs = 0;
+      driveBuzzer(false);
+    }
+  } else if (overrideBuzzer) {
+    driveBuzzer(manualBuzzerState);
+  } else {
+    driveBuzzer(buzzerPattern(state, now));
+  }
 }
 
 const __FlashStringHelper *stateName(AlertState state) {
@@ -445,15 +785,28 @@ const __FlashStringHelper *stateName(AlertState state) {
 }
 
 void selfTest() {
-  analogWrite(PIN_VIBRATION, 200);
-  driveBuzzer(true);
-  delay(160);
+  Serial.println(F("[UJI AKTUATOR] 1. Menguji Motor Getar (Pin D5 PWM)..."));
+  analogWrite(PIN_VIBRATION, 220);
+  delay(400);
   analogWrite(PIN_VIBRATION, 0);
+  delay(200);
+
+  Serial.println(F("[UJI AKTUATOR] 2. Menguji Buzzer (Pin D6)..."));
+  driveBuzzer(true);
+  delay(150);
+  driveBuzzer(false);
+  delay(100);
+  driveBuzzer(true);
+  delay(150);
   driveBuzzer(false);
 }
 
 void setup() {
   Serial.begin(115200);
+  delay(100); // Beri jeda stabilisasi serial port
+  Serial.println(F("\n[BOOT] Arduino Booting..."));
+  Serial.println(F("[BOOT] Menginisialisasi Pin I/O..."));
+
   pinMode(PIN_FRONT_TRIG, OUTPUT);
   pinMode(PIN_FRONT_ECHO, INPUT);
   pinMode(PIN_DOWN_TRIG, OUTPUT);
@@ -462,9 +815,31 @@ void setup() {
   pinMode(PIN_VIBRATION, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
 
-  setupMPU();
+  // Inisialisasi dan diagnosa MPU6050
+  Serial.print(F("[BOOT] Mengecek Sensor IMU MPU6050 (A4/A5)... "));
+  bool mpuOk = setupMPU();
+  if (mpuOk) {
+    mpuConnected = true;
+    Serial.print(F("OK (Terdeteksi di 0x"));
+    Serial.print(mpuAddr, HEX);
+    Serial.println(F(")"));
+  } else {
+    mpuConnected = false;
+    Serial.println(F("LEPAS/GAGAL (Bus I2C A4/A5 tidak merespons)"));
+  }
+
+  // Kalibrasi ultrasonik bawah
+  Serial.print(F("[BOOT] Mengkalibrasi Sensor Bawah (Pin 8/9)... "));
   calibrateDownBaseline();
+  Serial.print(F("Baseline: "));
+  Serial.print(downBaselineCm, 1);
+  Serial.println(F(" cm"));
+
+  // Uji aktuator getar dan buzzer
+  Serial.print(F("[BOOT] Uji Coba Aktuator (Self-Test)... "));
   selfTest();
+  Serial.println(F("OK"));
+
   Serial.println(F("=================================================="));
   Serial.println(F("      KATANA SMART CANE - SYSTEM ONLINE           "));
   Serial.println(F("  Ketik HELP di Serial Monitor untuk Mode Demo    "));

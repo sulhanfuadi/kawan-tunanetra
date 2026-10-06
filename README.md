@@ -19,7 +19,7 @@ KATANA retrofits an ergonomic forearm crutch into an assistive navigation device
 [ ENVIRONMENTAL INPUTS ]               [ PROCESSING UNIT ]              [ FEEDBACK ACTUATORS ]
 
 HC-SR04 (Front Obstacle)   ---(D2/D3)--->                     ---(PWM D5)---> Eccentric Haptic Motor
-HC-SR04 (Ground Drop-off)  ---(D10/D11)-> Arduino Nano V3                    (Handle Vibration)
+HC-SR04 (Ground Drop-off)  ---(D8/D9)----> Arduino Nano V3                    (Handle Vibration)
 Water Sensor (Conductive)  ---(A0)------> (ATmega328P / 16MHz)
 MPU6050 (6-Axis IMU)       ---(I2C)----->                     ---(D6+BC547)-> 85dB Active Buzzer
                                                                               (Acoustic SOS Alarm)
@@ -56,7 +56,7 @@ MPU6050 (6-Axis IMU)       ---(I2C)----->                     ---(D6+BC547)-> 85
 
 ![KATANA Physical Wiring Diagram](assets/wiring_diagram_riil.png)
 
-> Complete breadboard-level wiring schematic for the production physical hardware build. Includes pin assignments for all sensors (D2/D3 front ultrasonic, D10/D11 downward ultrasonic, A0 water sensor, I2C SDA/SCL for MPU6050), actuator driver circuit (PWM D5 motor, BC547 NPN transistor switch D6 for buzzer), and power distribution rails.
+> Complete breadboard-level wiring schematic for the production physical hardware build. Includes pin assignments for all sensors (D2/D3 front ultrasonic, D8/D9 downward ultrasonic, A0 water sensor, I2C SDA/SCL for MPU6050), actuator driver circuit (PWM D5 motor, BC547 NPN transistor switch D6 for buzzer), and power distribution rails.
 
 ---
 

@@ -25,8 +25,18 @@ import {
   Cpu,
   Layers,
   ShieldAlert,
-  Gauge
+  Gauge,
+  Upload,
+  RefreshCw,
+  Radio,
+  HardDrive,
+  FileCode,
+  CheckCircle2,
+  AlertCircle,
+  Zap
 } from "lucide-react";
+import { parseHex } from "../utils/hexParser";
+import { Stk500Flasher } from "../utils/stk500";
 
 interface TelemetryData {
   frontConnected: boolean;
@@ -81,7 +91,7 @@ const translations = {
     frontSub: "Pin D2/D3",
     frontSensorType: "Ultrasonik HC-SR04 Lurus",
     downDrop: "Turunan / Lubang",
-    downSub: "Pin D10/D11",
+    downSub: "Pin D8/D9",
     downSensorType: "Ultrasonik HC-SR04 Miring",
     caneTilt: "Kemiringan Tongkat",
     caneSub: "Pin A4/A5 I2C",
@@ -177,7 +187,27 @@ const translations = {
 
     darkTheme: "Gelap",
     lightTheme: "Terang",
-    autoTheme: "Auto"
+    autoTheme: "Auto",
+
+    // Tabs & Flasher
+    tabMonitoring: "Monitoring Sensor & CAD",
+    tabSerialConsole: "Serial Terminal & Flasher",
+    flasherTitle: "Arduino Nano Web Firmware Flasher (STK500v1)",
+    flasherDesc: "Upload file biner .hex langsung dari browser tanpa perlu membuka Arduino IDE",
+    selectHexBtn: "Pilih File Firmware (.hex)",
+    startUploadBtn: "Mulai Flash Firmware",
+    flashingStatus: "Sedang Mengunggah Firmware...",
+    bootloaderType: "Tipe Bootloader Nano:",
+    bootloaderNew: "New Bootloader (115200 Baud)",
+    bootloaderOld: "Old Bootloader (57600 Baud)",
+    rawStreamLog: "Raw Stream & System Activities",
+    filterLogs: "Filter Log:",
+    filterAll: "Semua",
+    filterStream: "Stream Sensor",
+    filterSystem: "Sistem & Flasher",
+    filterSend: "Perintah Kirim",
+    hexFileReady: "File HEX Terpilih:",
+    reconnectPrompt: "Tersambung kembali ke telemetri setelah flashing selesai."
   },
   en: {
     appTitle: "Katana Dashboard",
@@ -203,7 +233,7 @@ const translations = {
     frontSub: "Pin D2/D3",
     frontSensorType: "Forward Ultrasonic HC-SR04",
     downDrop: "Drop-off / Pothole",
-    downSub: "Pin D10/D11",
+    downSub: "Pin D8/D9",
     downSensorType: "Angled Ultrasonic HC-SR04",
     caneTilt: "Cane Orientation",
     caneSub: "Pin A4/A5 I2C",
@@ -299,7 +329,27 @@ const translations = {
 
     darkTheme: "Dark",
     lightTheme: "Light",
-    autoTheme: "Auto"
+    autoTheme: "Auto",
+
+    // Tabs & Flasher
+    tabMonitoring: "Sensor & CAD Monitoring",
+    tabSerialConsole: "Serial Terminal & Flasher",
+    flasherTitle: "Arduino Nano Web Firmware Flasher (STK500v1)",
+    flasherDesc: "Flash .hex binary files directly from your browser without opening Arduino IDE",
+    selectHexBtn: "Select Firmware File (.hex)",
+    startUploadBtn: "Flash Firmware",
+    flashingStatus: "Uploading Firmware...",
+    bootloaderType: "Nano Bootloader Target:",
+    bootloaderNew: "New Bootloader (115200 Baud)",
+    bootloaderOld: "Old Bootloader (57600 Baud)",
+    rawStreamLog: "Raw Stream & System Activities",
+    filterLogs: "Filter Logs:",
+    filterAll: "All",
+    filterStream: "Sensor Stream",
+    filterSystem: "System & Flasher",
+    filterSend: "Outbound Commands",
+    hexFileReady: "Selected HEX File:",
+    reconnectPrompt: "Telemetry stream resumes automatically once flashing finishes."
   }
 };
 
@@ -357,6 +407,21 @@ export default function KatanaDashboard() {
     "[INFO] Hubungkan kabel serial USB Arduino Nano atau aktifkan Mode Demo untuk pemantauan."
   ]);
   const [autoscroll, setAutoscroll] = useState(true);
+
+  // Active Tab
+  const [activeTab, setActiveTab] = useState<"monitor" | "serial_flash">("monitor");
+
+  // Flasher state
+  const [hexFile, setHexFile] = useState<{ name: string; bytes: Uint8Array } | null>(null);
+  const [rawHexBlob, setRawHexBlob] = useState<File | null>(null);
+  const [availablePorts, setAvailablePorts] = useState<string[]>(["COM3", "COM4", "COM1", "COM6"]);
+  const [selectedPort, setSelectedPort] = useState<string>("COM3");
+  const [isFlashing, setIsFlashing] = useState(false);
+  const [flashProgress, setFlashProgress] = useState(0);
+  const [flashStep, setFlashStep] = useState("");
+  const [bootloaderBaud, setBootloaderBaud] = useState<115200 | 57600>(115200);
+  const [logFilter, setLogFilter] = useState<"all" | "stream" | "system" | "send">("all");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Serial references
   const portRef = useRef<any>(null);
@@ -456,10 +521,14 @@ export default function KatanaDashboard() {
     try {
       const port = await (navigator as any).serial.requestPort();
       await port.open({ baudRate: 115200 });
+      try {
+        await port.setSignals({ dataTerminalReady: true, requestToSend: true });
+      } catch (e) {}
       portRef.current = port;
       setIsConnected(true);
       setPortInfo("Terhubung // 115200 Baud");
       addLog("[SISTEM] Port serial USB berhasil tersambung pada 115200 baud.");
+      addLog("[INFO] Membuka jalur data (RX/TX stream)... Tunggu sinyal dari Arduino.");
 
       const writer = port.writable.getWriter();
       writerRef.current = writer;
@@ -532,6 +601,128 @@ export default function KatanaDashboard() {
     setLogs((prev) => [...prev.slice(-150), msg]);
   };
 
+  // Fetch ports saat mount
+  useEffect(() => {
+    fetch("/api/ports")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ports && data.ports.length > 0) {
+          setAvailablePorts(data.ports);
+          setSelectedPort(data.ports[0]);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith(".hex")) {
+      alert("Pilih file biner berformat .hex (misal: katana.ino.hex dari Arduino IDE)");
+      return;
+    }
+
+    setRawHexBlob(file);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const hexText = event.target?.result as string;
+        const parsed = parseHex(hexText);
+        setHexFile({
+          name: file.name,
+          bytes: parsed.data
+        });
+        addLog(`[HEX] Berhasil memuat ${file.name} (${parsed.totalBytes} bytes). Siap diflash ke Arduino.`);
+      } catch (err: any) {
+        alert("Gagal mem-parsing file HEX: " + err.message);
+        addLog(`[ERROR] Parsing HEX gagal: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleFlashFirmware = async () => {
+    if (!rawHexBlob && !hexFile) {
+      alert("Pilih file firmware .hex terlebih dahulu.");
+      return;
+    }
+
+    // Jika sedang streaming serial biasa, putuskan dulu secara bersih agar COM port tidak terkunci
+    if (isConnected) {
+      addLog("[FLASH] Menutup koneksi serial telemetri sebelum flashing...");
+      await handleDisconnect();
+      await new Promise((r) => setTimeout(r, 600));
+    }
+
+    setIsFlashing(true);
+    setFlashProgress(20);
+    setFlashStep("Memanggil engine AVRDUDE resmi Arduino IDE...");
+    addLog(`[AVRDUDE] Memulai upload firmware ke ${selectedPort} pada ${bootloaderBaud} baud...`);
+
+    try {
+      if (rawHexBlob) {
+        // 1. Eksekusi melalui Engine AVRDUDE Native (Identik dengan tombol Upload di Arduino IDE)
+        const formData = new FormData();
+        formData.append("file", rawHexBlob);
+        formData.append("port", selectedPort);
+        formData.append("baud", bootloaderBaud.toString());
+
+        setFlashProgress(50);
+        setFlashStep("Flashing firmware via AVRDUDE...");
+
+        const res = await fetch("/api/flash", {
+          method: "POST",
+          body: formData
+        });
+
+        const result = await res.json();
+
+        if (result.output) {
+          // Cetak log output dari avrdude
+          const lines = result.output.split(/\r?\n/);
+          for (const l of lines) {
+            if (l.trim().length > 0) addLog(`[AVRDUDE] ${l.trim()}`);
+          }
+        }
+
+        if (!result.success) {
+          throw new Error(result.error || "Gagal upload via AVRDUDE");
+        }
+
+        setFlashProgress(100);
+        setFlashStep("Selesai 100%!");
+        alert("Upload firmware berhasil via AVRDUDE! Arduino Nano siap digunakan.");
+        addLog("[SISTEM] Firmware berhasil diflash 100%! Anda dapat menyambungkan kembali telemetri.");
+      } else {
+        // Fallback Web Serial jika raw file tidak ada
+        let port = portRef.current;
+        if (!port) {
+          port = await (navigator as any).serial.requestPort();
+        }
+        const flasher = new Stk500Flasher(port);
+        await flasher.flash(hexFile!.bytes, {
+          baudRate: bootloaderBaud,
+          onProgress: (p, s) => {
+            setFlashProgress(p);
+            setFlashStep(s);
+          },
+          onLog: (m) => addLog(m)
+        });
+        alert("Upload firmware berhasil!");
+      }
+    } catch (err: any) {
+      console.error("Flashing error:", err);
+      alert("Flashing gagal: " + err.message);
+      addLog(`[ERROR] Flashing gagal: ${err.message}`);
+    } finally {
+      setIsFlashing(false);
+      setFlashProgress(0);
+      setFlashStep("");
+    }
+  };
+
   const handleCopyLogs = () => {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(logs.join("\n"));
@@ -570,60 +761,126 @@ export default function KatanaDashboard() {
   };
 
   const parseLine = (line: string) => {
-    if (line.includes("[KONEKSI]") || line.includes("[SIMULASI]")) {
+    // 1. Format Telemetri Stream Reguler ([KONEKSI], [SIMULASI], atau [STREAM])
+    if (line.includes("[KONEKSI]") || line.includes("[SIMULASI]") || line.includes("[STREAM]")) {
       const isSim = line.includes("[SIMULASI]");
-      const next: TelemetryData = { ...data };
 
-      const front = line.match(/Depan:(?:RIIL|SIM)\((\d+)cm\)/);
-      if (front) {
-        next.frontConnected = true;
-        next.frontCm = parseInt(front[1], 10);
-      } else if (line.includes("Depan:LEPAS")) {
-        next.frontConnected = false;
-        next.frontCm = null;
-      }
+      setData((prev) => {
+        const next: TelemetryData = { ...prev };
 
-      const down = line.match(/Bawah:(?:RIIL|SIM)\((\d+)cm\)/);
-      if (down) {
-        next.downConnected = true;
-        next.downCm = parseInt(down[1], 10);
-      } else if (line.includes("Bawah:LEPAS")) {
-        next.downConnected = false;
-        next.downCm = null;
-      }
+        // Parsing Sensor Depan (dukung format: Depan:RIIL(25cm), Depan:SIM(25cm), Depan: 25.4cm)
+        const front = line.match(/Depan:(?:RIIL|SIM|\s*)\(?([0-9.]+)\s*cm\)?/i);
+        if (front) {
+          next.frontConnected = true;
+          next.frontCm = Math.round(parseFloat(front[1]));
+        } else if (line.includes("Depan:LEPAS") || line.includes("Depan: LEPAS")) {
+          next.frontConnected = false;
+          next.frontCm = null;
+        }
 
-      const imu = line.match(/IMU:(?:RIIL|SIM)\(([0-9.]+)°\)/);
-      if (imu) {
-        next.mpuConnected = true;
-        next.tiltDeg = parseFloat(imu[1]);
-      } else if (line.includes("IMU:LEPAS")) {
-        next.mpuConnected = false;
-        next.tiltDeg = null;
-      }
+        // Parsing Sensor Bawah (dukung format: Bawah:RIIL(30cm), Bawah:SIM(30cm), Bawah: 30.1cm)
+        const down = line.match(/Bawah:(?:RIIL|SIM|\s*)\(?([0-9.]+)\s*cm\)?/i);
+        if (down) {
+          next.downConnected = true;
+          next.downCm = Math.round(parseFloat(down[1]));
+        } else if (line.includes("Bawah:LEPAS") || line.includes("Bawah: LEPAS")) {
+          next.downConnected = false;
+          next.downCm = null;
+        }
 
-      const water = line.match(/Air:(?:RIIL|SIM)\((\d+)\)/);
-      if (water) {
-        next.waterConnected = true;
-        next.waterVal = parseInt(water[1], 10);
-      } else if (line.includes("Air:LEPAS")) {
-        next.waterConnected = false;
-        next.waterVal = null;
-      }
+        // Parsing Sensor IMU MPU6050 (dukung format: IMU:RIIL(12.5°), IMU:SIM(12.5°), Kemiringan: 12.5°)
+        const imu = line.match(/(?:IMU:(?:RIIL|SIM)\(|(?:Kemiringan|Sudut)[:\s=]+)([0-9.]+)°?\)?/i);
+        if (imu) {
+          next.mpuConnected = true;
+          next.tiltDeg = parseFloat(imu[1]);
+        } else if (line.includes("IMU:LEPAS") || line.includes("IMU: LEPAS")) {
+          next.mpuConnected = false;
+          next.tiltDeg = null;
+        }
 
-      const st = line.match(/STATE:\s*([^|]+)/);
-      if (st) next.state = st[1].trim();
+        // Parsing Sensor Air (dukung format: Air:RIIL(245), Air:SIM(245), Air: 245 ADC)
+        const water = line.match(/Air:(?:RIIL|SIM|\s*)\(?(\d+)(?:\s*ADC|\))/i);
+        if (water) {
+          next.waterConnected = true;
+          next.waterVal = parseInt(water[1], 10);
+        } else if (line.includes("Air:LEPAS") || line.includes("Air: LEPAS") || line.includes("Air: TERPUTUS")) {
+          next.waterConnected = false;
+          next.waterVal = null;
+        }
 
-      const motor = line.match(/Motor:\s*(ON|OFF)/);
-      if (motor) next.motor = motor[1];
+        // State sistem & status aktuator (jika ada pada baris)
+        const st = line.match(/STATE:\s*([^|]+)/);
+        if (st) next.state = st[1].trim();
 
-      const buz = line.match(/Buzzer:\s*(SOS|DIAM)/);
-      if (buz) next.buzzer = buz[1];
+        const motor = line.match(/Motor:\s*(ON|OFF)/i);
+        if (motor) next.motor = motor[1].toUpperCase();
 
-      setData(next);
+        const buz = line.match(/Buzzer:\s*(SOS|DIAM)/i);
+        if (buz) next.buzzer = buz[1].toUpperCase();
+
+        return next;
+      });
 
       if (isSim && !isDemoMode) {
         setIsDemoMode(true);
       }
+    }
+
+    // 2. Format Respon Uji Diagnosa Pin (DIAG atau TEST FRONT/DOWN/IMU/WATER)
+    if (line.includes("Sensor Depan") || line.includes("[TEST SENSOR DEPAN]")) {
+      setData((prev) => {
+        const next = { ...prev };
+        if (line.includes("TERHUBUNG")) {
+          next.frontConnected = true;
+          const m = line.match(/Jarak[:\s=]+([0-9.]+)\s*cm/i);
+          if (m) next.frontCm = Math.round(parseFloat(m[1]));
+        } else if (line.includes("LEPAS")) {
+          next.frontConnected = false;
+          next.frontCm = null;
+        }
+        return next;
+      });
+    }
+
+    if (line.includes("Sensor Bawah") || line.includes("[TEST SENSOR BAWAH]")) {
+      setData((prev) => {
+        const next = { ...prev };
+        if (line.includes("TERHUBUNG")) {
+          next.downConnected = true;
+          const m = line.match(/Jarak[:\s=]+([0-9.]+)\s*cm/i);
+          if (m) next.downCm = Math.round(parseFloat(m[1]));
+        } else if (line.includes("LEPAS")) {
+          next.downConnected = false;
+          next.downCm = null;
+        }
+        return next;
+      });
+    }
+
+    if (line.includes("Sensor IMU") || line.includes("MPU6050") || line.includes("[TEST MPU6050]")) {
+      setData((prev) => {
+        const next = { ...prev };
+        if (line.includes("TERHUBUNG") || line.includes("OK (Terdeteksi)")) {
+          next.mpuConnected = true;
+          if (next.tiltDeg === null) next.tiltDeg = 10.0;
+        } else if (line.includes("LEPAS")) {
+          next.mpuConnected = false;
+          next.tiltDeg = null;
+        }
+        return next;
+      });
+    }
+
+    if (line.includes("Sensor Air") || line.includes("[TEST SENSOR AIR")) {
+      setData((prev) => {
+        const next = { ...prev };
+        const m = line.match(/ADC(?:\s*RAW)?[:\s=]+(\d+)/i);
+        if (m) {
+          next.waterConnected = true;
+          next.waterVal = parseInt(m[1], 10);
+        }
+        return next;
+      });
     }
   };
 
@@ -689,11 +946,74 @@ export default function KatanaDashboard() {
   };
 
   const handleSendCommand = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
     if (!customCommand.trim()) return;
     const cmd = customCommand.trim();
     sendSerial(cmd);
     setCustomCommand("");
+  };
+
+  // Test Koneksi Hardware Sensor Asli (Mengirim perintah diagnostik ke mikrokontroler)
+  const testTriggerSensor = (type: "FRONT" | "DOWN" | "IMU" | "WATER" | "ALL_ONLINE" | "RESET") => {
+    if (!isConnected) {
+      alert("Sambungkan USB Arduino terlebih dahulu untuk mengetes koneksi pin fisik hardware!");
+      return;
+    }
+
+    if (type === "FRONT") {
+      addLog("[TEST PIN] Memeriksa Sensor Depan HC-SR04 (Trig: D3, Echo: D2)...");
+      sendSerial("TEST FRONT");
+    } else if (type === "DOWN") {
+      addLog("[TEST PIN] Memeriksa Sensor Bawah HC-SR04 (Trig: D9, Echo: D8)...");
+      sendSerial("TEST DOWN");
+    } else if (type === "IMU") {
+      addLog("[TEST PIN] Memeriksa Sensor IMU MPU6050 (SDA: A4, SCL: A5 I2C)...");
+      sendSerial("TEST IMU");
+    } else if (type === "WATER") {
+      addLog("[TEST PIN] Memeriksa Pelat Sensor Air (Analog: A0)...");
+      sendSerial("TEST WATER");
+    } else if (type === "ALL_ONLINE") {
+      addLog("[TEST PIN] Menjalankan Diagnosa Lengkap Seluruh Modul Hardware...");
+      sendSerial("DIAG");
+    } else if (type === "RESET") {
+      addLog("[TEST PIN] Mereset pembacaan sensor fisik ke kondisi nominal...");
+      sendSerial("NORMAL");
+    }
+  };
+
+  // Test & Simulasi Aktuator Fisik (Motor Getar D5 & Buzzer D6)
+  const testTriggerActuator = (
+    action: "MOTOR_PULSE" | "MOTOR_ON" | "MOTOR_OFF" | "BUZZER_BEEP" | "BUZZER_ON" | "BUZZER_OFF" | "ALL_OUTPUT" | "STOP_ALL"
+  ) => {
+    if (!isConnected) {
+      alert("Sambungkan USB Arduino terlebih dahulu untuk menguji aktuator fisik!");
+      return;
+    }
+
+    if (action === "MOTOR_PULSE") {
+      addLog("[UJI AKTUATOR] Menguji Motor Getar (D5 PWM) selama 1.5 detik...");
+      sendSerial("TEST MOTOR");
+    } else if (action === "MOTOR_ON") {
+      addLog("[UJI AKTUATOR] Menyalakan Motor Getar (D5 PWM) terus-menerus...");
+      sendSerial("MOTOR ON");
+    } else if (action === "MOTOR_OFF") {
+      addLog("[UJI AKTUATOR] Mematikan Motor Getar (D5)...");
+      sendSerial("MOTOR OFF");
+    } else if (action === "BUZZER_BEEP") {
+      addLog("[UJI AKTUATOR] Menguji Buzzer (D6) dengan pola Beep selama 1.5 detik...");
+      sendSerial("TEST BUZZER");
+    } else if (action === "BUZZER_ON") {
+      addLog("[UJI AKTUATOR] Menyalakan Buzzer (D6) terus-menerus...");
+      sendSerial("BUZZER ON");
+    } else if (action === "BUZZER_OFF") {
+      addLog("[UJI AKTUATOR] Mematikan Buzzer (D6)...");
+      sendSerial("BUZZER OFF");
+    } else if (action === "ALL_OUTPUT") {
+      addLog("[UJI AKTUATOR] Menjalankan Self-Test Semua Aktuator (Motor & Buzzer)...");
+      sendSerial("TEST OUTPUT");
+    } else if (action === "STOP_ALL") {
+      addLog("[UJI AKTUATOR] Menghentikan semua uji aktuator manual...");
+      sendSerial("STOP");
+    }
   };
 
   // Demo fallback simulation tick when USB is not connected
@@ -973,6 +1293,38 @@ export default function KatanaDashboard() {
           </div>
         </header>
 
+        {/* Tab Navigation Navigation Switcher */}
+        <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-2 pt-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab("monitor")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer select-none ${
+              activeTab === "monitor"
+                ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-sm border border-transparent"
+                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 hover:text-zinc-950 dark:hover:text-white"
+            }`}
+          >
+            <Gauge className="w-4 h-4 shrink-0" />
+            <span>{t.tabMonitoring}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("serial_flash")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer select-none ${
+              activeTab === "serial_flash"
+                ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-sm border border-transparent"
+                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 hover:text-zinc-950 dark:hover:text-white"
+            }`}
+          >
+            <Radio className="w-4 h-4 shrink-0" />
+            <span>{t.tabSerialConsole}</span>
+            {hexFile && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="File HEX siap" />
+            )}
+          </button>
+        </div>
+
         {/* Master Mission Telemetry Status Ribbon */}
         <div
           className={`px-5 py-3.5 rounded-2xl border transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xs ${
@@ -1054,8 +1406,136 @@ export default function KatanaDashboard() {
           </div>
         </div>
 
-        {/* 4 Dedicated Sensor Telemetry Cards (High-End Industrial Double-Bezel Design, NOT AI Slop) */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* TAB 1: SENSOR MONITORING & CAD ORIENTATION */}
+        {activeTab === "monitor" && (
+          <>
+            {/* Quick Hardware & Sensor Debug Test Bar */}
+            <div className="space-y-2">
+              {/* Row 1: Pin Sensor Connection Test */}
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 text-[11px]">
+                    <Activity className="w-3.5 h-3.5 text-sky-500" />
+                    TES KONEKSI PIN SENSOR:
+                  </span>
+                  <span className="text-[10px] text-zinc-500 hidden sm:inline">
+                    (Periksa sambungan kabel fisik tiap sensor)
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => testTriggerSensor("FRONT")}
+                    className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    title="Kirim TEST FRONT untuk cek pulsa Echo pin D2"
+                  >
+                    Cek Depan (D2/D3)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => testTriggerSensor("DOWN")}
+                    className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    title="Kirim TEST DOWN untuk cek pulsa Echo pin D8"
+                  >
+                    Cek Bawah (D8/D9)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => testTriggerSensor("IMU")}
+                    className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    title="Kirim TEST IMU untuk cek bus I2C A4/A5 modul 0x68/0x69"
+                  >
+                    Cek IMU (A4/A5)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => testTriggerSensor("WATER")}
+                    className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    title="Kirim TEST WATER untuk membaca ADC analog A0"
+                  >
+                    Cek Air (A0)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => testTriggerSensor("ALL_ONLINE")}
+                    className="px-2.5 py-1 rounded-md bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-900 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    title="Jalankan perintah DIAG untuk menguji semua sensor sekaligus"
+                  >
+                    Diagnosa Lengkap (DIAG)
+                  </button>
+                </div>
+              </div>
+
+              {/* Row 2: Actuator Trigger & Simulation Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 text-[11px]">
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    TRIGGER / UJI AKTUATOR:
+                  </span>
+                  <span className="text-[10px] text-zinc-500 hidden sm:inline">
+                    (Trigger getar motor D5 & bunyi buzzer D6)
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => testTriggerActuator("MOTOR_PULSE")}
+                    className="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900 text-[10px] font-mono font-bold cursor-pointer transition-all flex items-center gap-1"
+                    title="Getarkan motor getar di pin D5 selama 1.5 detik (TEST MOTOR)"
+                  >
+                    <Vibrate className="w-3 h-3" />
+                    Getar Motor (1.5s)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => testTriggerActuator(data.motor === "ON" ? "MOTOR_OFF" : "MOTOR_ON")}
+                    className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    title="Nyalakan / matikan motor getar secara manual"
+                  >
+                    {data.motor === "ON" ? "Motor: OFF" : "Motor: ON"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => testTriggerActuator("BUZZER_BEEP")}
+                    className="px-2.5 py-1 rounded-md bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-900 text-[10px] font-mono font-bold cursor-pointer transition-all flex items-center gap-1"
+                    title="Bunyikan buzzer pola beep di pin D6 selama 1.5 detik (TEST BUZZER)"
+                  >
+                    <Volume2 className="w-3 h-3" />
+                    Beep Buzzer (1.5s)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => testTriggerActuator(data.buzzer === "SOS" ? "BUZZER_OFF" : "BUZZER_ON")}
+                    className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    title="Nyalakan / matikan buzzer secara manual"
+                  >
+                    {data.buzzer === "SOS" ? "Buzzer: OFF" : "Buzzer: ON"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => testTriggerActuator("ALL_OUTPUT")}
+                    className="px-2.5 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    title="Self-test motor dan buzzer bergantian (TEST OUTPUT)"
+                  >
+                    Test Motor + Buzzer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => testTriggerActuator("STOP_ALL")}
+                    className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-rose-100 dark:bg-zinc-900 dark:hover:bg-rose-950/40 text-zinc-600 hover:text-rose-700 dark:text-zinc-400 dark:hover:text-rose-400 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    title="Hentikan semua override aktuator (STOP)"
+                  >
+                    Stop Semua
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 4 Dedicated Sensor Telemetry Cards (High-End Industrial Double-Bezel Design, NOT AI Slop) */}
+            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           
           {/* Card 1: Front Obstacle */}
           <div className="p-1 rounded-2xl bg-zinc-200/50 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800/80 shadow-2xs">
@@ -1540,7 +2020,7 @@ export default function KatanaDashboard() {
                   <div className="p-2 bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 rounded-lg flex items-center justify-between">
                     <div>
                       <div className="text-[11px] font-semibold">{t.pinDownLabel}</div>
-                      <div className="text-[10px] font-mono text-zinc-400">D10/D11</div>
+                      <div className="text-[10px] font-mono text-zinc-400">D8/D9</div>
                     </div>
                     <span
                       className={`w-24 h-5 flex items-center justify-center text-[9px] font-mono rounded font-bold shrink-0 ${
@@ -1818,6 +2298,311 @@ export default function KatanaDashboard() {
           )}
 
         </main>
+          </>
+        )}
+
+        {/* TAB 2: DEDICATED SERIAL TERMINAL, IN-BROWSER FLASHER & RAW ACTIVITY STREAM */}
+        {activeTab === "serial_flash" && (
+          <div className="space-y-4">
+            
+            {/* 1. In-Browser Arduino Nano Web Firmware Flasher Panel */}
+            <div className="p-5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-zinc-200 dark:border-zinc-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800 flex items-center justify-center text-sky-600 dark:text-sky-400 shrink-0">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-zinc-950 dark:text-white flex items-center gap-2">
+                      {t.flasherTitle}
+                    </h2>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {t.flasherDesc}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Target Port & Bootloader Baudrate Selector */}
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-500 font-medium">Port COM:</span>
+                    <select
+                      value={selectedPort}
+                      onChange={(e) => setSelectedPort(e.target.value)}
+                      disabled={isFlashing}
+                      className="px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg font-mono text-xs font-semibold focus:outline-none"
+                    >
+                      {availablePorts.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-500 font-medium">{t.bootloaderType}</span>
+                    <select
+                      value={bootloaderBaud}
+                      onChange={(e) => setBootloaderBaud(parseInt(e.target.value, 10) as any)}
+                      disabled={isFlashing}
+                      className="px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg font-mono text-xs font-semibold focus:outline-none"
+                    >
+                      <option value={115200}>{t.bootloaderNew}</option>
+                      <option value={57600}>{t.bootloaderOld}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Upload Controls & File Dropper */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                <div className="md:col-span-8 flex flex-col sm:flex-row items-center gap-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".hex"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isFlashing}
+                    className="w-full sm:w-auto px-4 py-2.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0"
+                  >
+                    <FileCode className="w-4 h-4 text-zinc-500" />
+                    <span>{t.selectHexBtn}</span>
+                  </button>
+
+                  <div className="flex-1 min-w-0 w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-900/40 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl text-xs">
+                    {hexFile ? (
+                      <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-mono font-medium truncate">
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{hexFile.name}</span>
+                        <span className="text-[10px] text-zinc-400">({hexFile.bytes.length} bytes)</span>
+                      </div>
+                    ) : (
+                      <span className="text-zinc-400 font-mono text-[11px]">
+                        Belum ada file .hex yang dipilih. Export biner dari Arduino IDE (Sketch -&gt; Export Compiled Binary) lalu pilih di sini.
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="md:col-span-4 flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={handleFlashFirmware}
+                    disabled={!hexFile || isFlashing}
+                    className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer ${
+                      !hexFile || isFlashing
+                        ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                        : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    }`}
+                  >
+                    {isFlashing ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>{t.flashingStatus}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        <span>{t.startUploadBtn}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Flashing Progress Bar */}
+              {isFlashing && (
+                <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="font-semibold text-zinc-700 dark:text-zinc-300">{flashStep}</span>
+                    <span className="font-bold text-sky-600 dark:text-sky-400">{flashProgress}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-sky-500 rounded-full transition-all duration-200"
+                      style={{ width: `${flashProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Full Serial Terminal & Raw Activity Deck */}
+            <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs overflow-hidden flex flex-col">
+              
+              {/* Terminal Header Toolbar */}
+              <div className="px-5 py-3 border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-zinc-500" />
+                  <h3 className="text-xs font-bold font-mono text-zinc-900 dark:text-zinc-100">
+                    {t.rawStreamLog}
+                  </h3>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-900 text-zinc-500">
+                    {logs.length} baris
+                  </span>
+                </div>
+
+                {/* Filter Pills */}
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-[11px] text-zinc-400 mr-1">{t.filterLogs}</span>
+                  <button
+                    onClick={() => setLogFilter("all")}
+                    className={`px-2 py-1 rounded-md text-[11px] font-mono font-medium transition-all cursor-pointer ${
+                      logFilter === "all"
+                        ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-950"
+                        : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200"
+                    }`}
+                  >
+                    {t.filterAll}
+                  </button>
+                  <button
+                    onClick={() => setLogFilter("stream")}
+                    className={`px-2 py-1 rounded-md text-[11px] font-mono font-medium transition-all cursor-pointer ${
+                      logFilter === "stream"
+                        ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-950"
+                        : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200"
+                    }`}
+                  >
+                    {t.filterStream}
+                  </button>
+                  <button
+                    onClick={() => setLogFilter("system")}
+                    className={`px-2 py-1 rounded-md text-[11px] font-mono font-medium transition-all cursor-pointer ${
+                      logFilter === "system"
+                        ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-950"
+                        : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200"
+                    }`}
+                  >
+                    {t.filterSystem}
+                  </button>
+                  <button
+                    onClick={() => setLogFilter("send")}
+                    className={`px-2 py-1 rounded-md text-[11px] font-mono font-medium transition-all cursor-pointer ${
+                      logFilter === "send"
+                        ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-950"
+                        : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200"
+                    }`}
+                  >
+                    {t.filterSend}
+                  </button>
+                </div>
+
+                {/* Actions (Copy & Clear) */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopyLogs}
+                    className="h-7 px-2.5 flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white border border-zinc-200 dark:border-zinc-800 rounded-lg cursor-pointer transition-all"
+                  >
+                    {copiedLog ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedLog ? t.copied : t.copyLogs}</span>
+                  </button>
+                  <button
+                    onClick={() => setLogs([])}
+                    className="h-7 px-2.5 flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-300 hover:text-rose-600 border border-zinc-200 dark:border-zinc-800 rounded-lg cursor-pointer transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{t.clear}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Log Display Window */}
+              <div
+                ref={logContainerRef}
+                className="h-96 bg-zinc-950 text-zinc-200 p-4 overflow-y-auto font-mono text-xs space-y-1.5 select-text"
+              >
+                {logs
+                  .filter((line) => {
+                    if (logFilter === "stream") return line.includes("[KONEKSI]") || line.includes("[SIMULASI]");
+                    if (logFilter === "system") return line.includes("[SISTEM]") || line.includes("[BOOT]") || line.includes("[FLASH]") || line.includes("[ERROR]") || line.includes("[INFO]");
+                    if (logFilter === "send") return line.includes("[KIRIM]");
+                    return true;
+                  })
+                  .map((line, idx) => {
+                    let color = "text-zinc-300";
+                    if (line.startsWith("[KIRIM]")) color = "text-sky-400 font-semibold";
+                    else if (line.startsWith("[ERROR]")) color = "text-rose-400 font-bold";
+                    else if (line.startsWith("[BOOT]")) color = "text-amber-400 font-semibold";
+                    else if (line.startsWith("[FLASH]")) color = "text-violet-400 font-semibold";
+                    else if (line.startsWith("[SISTEM]")) color = "text-emerald-400";
+                    else if (line.startsWith("[KONEKSI]")) color = "text-emerald-300";
+                    else if (line.startsWith("[SIMULASI]")) color = "text-purple-300";
+
+                    return (
+                      <div key={idx} className={`${color} leading-relaxed break-all`}>
+                        {line}
+                      </div>
+                    );
+                  })}
+              </div>
+
+              {/* Outbound Serial Command Bar */}
+              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row gap-2">
+                <form onSubmit={handleSendCommand} className="flex-1 flex gap-2">
+                  <input
+                    type="text"
+                    value={customCommand}
+                    onChange={(e) => setCustomCommand(e.target.value)}
+                    placeholder={t.inputPlaceholder}
+                    className="flex-1 px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-mono focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:focus:ring-zinc-600 text-zinc-900 dark:text-zinc-100"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-950 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{t.send}</span>
+                  </button>
+                </form>
+
+                {/* Shortcuts */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => sendSerial("HELP")}
+                    className="px-2 py-1 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg font-mono text-[11px] font-semibold hover:border-zinc-400 cursor-pointer"
+                  >
+                    HELP
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendSerial("FALL")}
+                    className="px-2 py-1 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 rounded-lg font-mono text-[11px] font-semibold hover:border-rose-400 cursor-pointer"
+                  >
+                    FALL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendSerial("DROP")}
+                    className="px-2 py-1 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-600 dark:text-amber-400 rounded-lg font-mono text-[11px] font-semibold hover:border-amber-400 cursor-pointer"
+                  >
+                    DROP
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendSerial("WET")}
+                    className="px-2 py-1 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900 text-sky-600 dark:text-sky-400 rounded-lg font-mono text-[11px] font-semibold hover:border-sky-400 cursor-pointer"
+                  >
+                    WET
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendSerial("NORMAL")}
+                    className="px-2 py-1 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-600 dark:text-emerald-400 rounded-lg font-mono text-[11px] font-semibold hover:border-emerald-400 cursor-pointer"
+                  >
+                    NORMAL
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        )}
       </div>
     </div>
   );
