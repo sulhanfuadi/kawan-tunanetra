@@ -208,16 +208,62 @@ void testDownSensor() {
 
 void testIMUSensor() {
   Serial.print(F("[UJI 3: SENSOR IMU MPU6050 A4/A5] "));
+  
+  // 1. Matikan TWI Hardware terlebih dahulu agar kita bisa cek kondisi elektrik pin A4/A5
+  TWCR &= ~(_BV(TWEN));
+  pinMode(A4, INPUT);
+  pinMode(A5, INPUT);
+  delayMicroseconds(10);
+
+  int vSDA = analogRead(A4);
+  int vSCL = analogRead(A5);
+
+  // 2. I2C Bus Recovery: Clock 9 siklus di pin A5 (SCL) untuk membebaskan chip MPU jika sedang lockup (menahan SDA LOW)
+  pinMode(A5, OUTPUT);
+  pinMode(A4, INPUT_PULLUP);
+  for (byte k = 0; k < 9; k++) {
+    digitalWrite(A5, LOW);
+    delayMicroseconds(5);
+    digitalWrite(A5, HIGH);
+    delayMicroseconds(5);
+  }
+  // Generate STOP condition
+  pinMode(A4, OUTPUT);
+  digitalWrite(A4, LOW);
+  delayMicroseconds(5);
+  digitalWrite(A5, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(A4, HIGH);
+  delayMicroseconds(5);
+
+  // 3. Mulai Wire kembali
   Wire.begin();
+  #if defined(WIRE_HAS_TIMEOUT)
+    Wire.setWireTimeout(3000, true);
+  #endif
+
   byte error, address;
   byte foundAddress = 0;
 
-  for (address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-    if (error == 0) {
-      foundAddress = address;
-      break;
+  // Cek alamat standar 0x68 terlebih dahulu
+  Wire.beginTransmission(0x68);
+  if (Wire.endTransmission() == 0) {
+    foundAddress = 0x68;
+  } else {
+    // Cek alternatif 0x69 (AD0 High)
+    Wire.beginTransmission(0x69);
+    if (Wire.endTransmission() == 0) {
+      foundAddress = 0x69;
+    } else {
+      // Pindai alamat 1..126
+      for (address = 1; address < 127; address++) {
+        Wire.beginTransmission(address);
+        error = Wire.endTransmission();
+        if (error == 0) {
+          foundAddress = address;
+          break;
+        }
+      }
     }
   }
 
@@ -265,7 +311,12 @@ void testIMUSensor() {
       Serial.println(F(" | Gagal meminta data register!"));
     }
   } else {
-    Serial.println(F("LEPAS! Bus I2C tidak merespons. Pastikan LED di modul GY-521 menyala, VCC=5V, GND=GND, SDA=A4, SCL=A5."));
+    Serial.print(F("LEPAS! (SDA/A4="));
+    Serial.print((vSDA * 5.0) / 1023.0, 1);
+    Serial.print(F("V, SCL/A5="));
+    Serial.print((vSCL * 5.0) / 1023.0, 1);
+    Serial.println(F("V)."));
+    Serial.println(F("   -> CATATAN: Pastikan VCC=5V, GND=GND, SDA=A4, SCL=A5, dan PIN MODUL SUDAH DISOLDER TIMAH."));
   }
 }
 
