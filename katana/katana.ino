@@ -65,8 +65,8 @@ bool mpuConnected   = false;
 bool waterConnected = false;
 
 // Konfigurasi Sensor Air Fisik (Pin A0)
-// Set ke false jika modul sensor air fisik belum dipasang agar pin A0 yang melayang (floating) tidak menghasilkan data palsu
-bool waterSensorInstalled = false;
+// Diaktifkan default agar langsung membaca sensor air fisik tanpa perlu ketik WATER ON
+bool waterSensorInstalled = true;
 
 float frontCm = -1.0;
 float downCm  = -1.0;
