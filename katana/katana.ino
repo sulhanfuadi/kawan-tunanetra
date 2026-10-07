@@ -721,10 +721,10 @@ void updateInputs() {
       dropDeltaCm = 0;
     }
 
-    // 3. Baca sensor air (hanya jika terpasang fisik, cegah floating noise A0)
+    // 3. Baca sensor air (Pin A0)
     if (waterSensorInstalled) {
       waterValue = analogRead(PIN_WATER_RAW);
-      waterConnected = (waterValue >= 100);
+      waterConnected = true; // Selalu terhubung selama modul terpasang fisik
     } else {
       waterValue = 0;
       waterConnected = false;
@@ -1035,9 +1035,9 @@ void loop() {
       if (waterConnected) {
         Serial.print(F("RIIL("));
         Serial.print(waterValue);
-        Serial.print(F(")"));
+        Serial.print(waterValue > WATER_LIMIT ? F(")[BASAH] ") : F(")[KERING] "));
       } else {
-        Serial.print(F("LEPAS"));
+        Serial.print(F("LEPAS "));
       }
     }
 
