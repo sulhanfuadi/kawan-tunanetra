@@ -164,6 +164,7 @@ When multiple hazard conditions are detected simultaneously, the internal state 
    - Surface conductivity index.
    - Actuator states (PWM duty cycle and buzzer status).
    - Sensor wiring integrity badges (`RIIL` vs `LEPAS`).
+   - Telemetry Data Logger & CSV Export: Record sensor streams and export structured `.csv` datasets for analysis in Excel or Python.
 
 *(Note: Close the Arduino IDE Serial Monitor before connecting through the browser to avoid serial port contention).*
 
