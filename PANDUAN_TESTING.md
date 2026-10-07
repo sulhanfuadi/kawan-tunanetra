@@ -1,221 +1,185 @@
-# Panduan Pengujian Hardware & Firmware Katana
+# Panduan Simulasi & Pengujian Kasus Katana
 
-> **Buku Saku Pengujian Cepat & Akurat untuk Perakitan Alat Bantu Tunanetra "Katana"**  
-> Gunakan panduan langkah demi langkah ini untuk memastikan setiap pin, sensor, dan aktuator berfungsi optimal sebelum alat dirakit permanen.
+Panduan pengujian langsung berbasis kondisi logika dan tangga prioritas keselamatan pada firmware Katana (`katana/katana.ino`). Gunakan panduan ini untuk menguji respon sistem baik secara fisik maupun melalui perintah simulasi serial.
 
 ---
 
-## 📋 Ringkasan Blueprint Pin Arduino Nano
+## 1. Referensi Pin & Ambang Logika
 
-Sebelum mulai menguji, pastikan kabel jumper Anda sudah terpasang sesuai tabel berikut:
-
-| Komponen / Sensor | Pin Modul | Pin Arduino Nano | Catatan Khusus |
+### Blueprint Pin Hardware (Arduino Nano)
+| Komponen | Pin Modul | Pin Nano | Deskripsi & Jalur |
 |---|:---:|:---:|---|
-| **Ultrasonik Depan (HC-SR04)** | `TRIG` | **D3** | Jarak rintangan depan (0 - 200 cm) |
-| | `ECHO` | **D2** | |
-| **Ultrasonik Bawah (HC-SR04)** | `TRIG` | **D9** | Deteksi turunan / lubang jalan |
-| | `ECHO` | **D8** | |
-| **Buzzer Aktif 5V** | `(+)` | **D6** *(via R 1k/Transistor)* | Bunyi audio peringatan |
-| **Motor Getar (Vibrator)** | `IN / SIG` | **D5** *(PWM)* | Umpan balik taktil di pegangan tongkat |
-| **Sensor IMU (MPU6050 / GY-521)** | `SDA` | **A4** | Deteksi ayunan langkah (*tilt*) |
-| | `SCL` | **A5** | |
-| **Sensor Air Analog** | `SIG / S` | **A0** | Deteksi genangan air jalan |
-| **Semua Jalur VCC** | `VCC / +` | **5V** | Hubungkan ke rel positif (+) breadboard |
-| **Semua Jalur GND** | `GND / -` | **GND** | Hubungkan ke rel negatif (-) breadboard |
+| **Ultrasonik Depan (HC-SR04)** | TRIG / ECHO | **D3 / D2** | Rintangan depan (0 - 200 cm) |
+| **Ultrasonik Bawah (HC-SR04)** | TRIG / ECHO | **D9 / D8** | Turunan / lubang (baseline ~30 cm) |
+| **Buzzer Aktif 5V** | (+) | **D6** | Audio alarm darurat (Morse SOS) |
+| **Motor Getar (PWM)** | SIG | **D5** | Umpan balik taktil pada handle tongkat |
+| **IMU MPU6050 (GY-521)** | SDA / SCL | **A4 / A5** | Sudut orientasi & deteksi jatuh |
+| **Sensor Air Analog** | SIG | **A0** | Deteksi genangan air jalan |
+| **Daya & Ground** | VCC / GND | **5V / GND** | Rel daya sirkuit bersama |
 
----
-
-## 🛠️ Alat Uji Utama: `three_stage_diagnostic.ino`
-
-Semua pengujian dapat dilakukan menggunakan satu sketch diagnostik terpadu yang ada di folder:  
-📁 `tools/three_stage_diagnostic/three_stage_diagnostic.ino`
-
-### Cara Membuka Console Diagnostik:
-1. Buka Arduino IDE, buka file `tools/three_stage_diagnostic/three_stage_diagnostic.ino`.
-2. Pastikan Board dipilih **Arduino Nano** (Processor: *ATmega328P* atau *ATmega328P Old Bootloader*).
-3. Klik tombol **Upload**.
-4. Setelah selesai, buka **Serial Monitor** (tekan `Ctrl + Shift + M`).
-5. **PENTING**: Pastikan baudrate di pojok kanan bawah Serial Monitor diset ke **`115200 baud`**.
-
----
-
-## 🚀 Alur Praktik Pengujian (4 Tahap Bertingkat)
-
+### Matriks Tangga Prioritas Bahaya
 ```
-[Tahap 1: Cek Pin CMOS] ➡️ [Tahap 2: Tes Aktuator] ➡️ [Tahap 3: Cek Sensor Fisik] ➡️ [Tahap 4: Simulasi Live]
+Prioritas 1: FALL_ALERT   (Tongkat Jatuh)      -> Buzzer Morse SOS, Motor OFF
+Prioritas 2: DROP_ALERT   (Tepi Turunan)       -> Motor 3 Denyut Taktil, Buzzer OFF
+Prioritas 3: WATER_ALERT  (Genangan Air)       -> Motor 2 Denyut Panjang, Buzzer OFF
+Prioritas 4: OBJECT_NEAR  (Depan < 30 cm)      -> Motor Getar Kontinu Penuh, Buzzer OFF
+Prioritas 5: OBJECT_MED   (Depan 30 - 60 cm)   -> Motor Getar Denyut Cepat, Buzzer OFF
+Prioritas 6: OBJECT_LOW   (Depan 60 - 100 cm)  -> Motor Getar Denyut Lambat, Buzzer OFF
+Prioritas 7: NORMAL       (Jalur Aman)         -> Motor OFF, Buzzer OFF
+Standby    : STANDBY      (Sensor Lepas)       -> Motor OFF, Buzzer OFF (Cegah False Alarm)
 ```
 
 ---
 
-### Tahap 1: Cek Kesehatan Pin Arduino (Perintah: `1`)
+## 2. Cara Menjalankan Konsol Uji
 
-* **Tujuan**: Memastikan pin Arduino Nano sehat, tidak ada korsleting (short circuit) ke GND atau 5V.
-* **Cara Memulai**: Ketik `1` lalu tekan **Enter**.
-* **Apa yang Diamati**:
-  * Pin digital (D2 - D12) akan berstatus `[NORMAL - SEHAT]`.
-  * Pin analog (A0 - A7) akan menampilkan nilai tegangan saat ini.
-* **Tes Sentuh Interaktif**:
-  * Tancapkan 1 kabel jumper ke pin **GND**.
-  * Sentuhkan ujung lainnya ke pin **D2, D3, D5, D6, D8, D9, atau A0**.
-  * Di Serial Monitor akan muncul pesan deteksi sentuhan secara langsung (*LIVE*). Jika muncul, berarti jalur pin mikrokontroler Anda 100% normal!
+1. Buka Arduino IDE, unggah firmware `katana/katana.ino` ke Arduino Nano.
+2. Buka **Serial Monitor** pada kecepatan **`115200 baud`**.
+3. Pastikan baris input diset ke **Newline** atau **Both NL & CR**.
+4. *(Alternatif)*: Hubungkan via **Katana Dashboard** pada web browser menggunakan Web Serial API.
 
 ---
 
-### Tahap 2: Uji Aktuator Buzzer & Motor (Perintah: `2`)
+## 3. Skenario Uji Kasus Nyata (Case 1 - Case 8)
 
-* **Tujuan**: Memastikan buzzer dan motor getar dapat menghasilkan getaran dan suara yang jelas.
-* **Cara Memulai**: Ketik `2` lalu tekan **Enter**.
-* **Siklus Otomatis (Bergantian Tiap 3.6 Detik)**:
-  1. **Fasa 1**: Buzzer di pin **D6** berbunyi beep bip-bip.
-  2. **Fasa 2**: Motor di pin **D5** bergetar berdenyut di tangan.
-  3. **Fasa 3**: Keduanya berbunyi dan bergetar bersamaan.
-* **Perintah Uji Mandiri Cepat**:
-  * Ketik `BUZZER` ➡️ Tes bunyi 3x beep.
-  * Ketik `MOTOR` ➡️ Tes getar 1.5 detik.
-  * Ketik `DUAL` ➡️ Tes keduanya aktif bersamaan.
-  * Ketik `STOP` ➡️ Matikan semua aktuator.
+### KASUS 1: Tongkat Terjatuh / Tunanetra Tumbang (Prioritas 1 - Darurat Utama)
+Kondisi di mana pengguna terjatuh atau tongkat terlepas ke tanah. Membutuhkan pertolongan audio bagi orang di sekitar.
 
----
-
-### Tahap 3: Uji Sensor Per Komponen (Perintah: `3` atau `STREAM`)
-
-* **Tujuan**: Menguji pembacaan masing-masing sensor secara akurat.
-* **Cara Memulai**: Ketik `3` lalu tekan **Enter** untuk cek ringkasan satu kali, ATAU ketik `STREAM` untuk melihat data terus-menerus.
-
-#### 1. Uji Sensor Ultrasonik Depan (Ketik: `DEPAN` atau `STREAM DEPAN`)
-* Arahkan tangan Anda di depan sensor HC-SR04 depan pada jarak 10 cm, 30 cm, dan 100 cm.
-* **Hasil Benar**: Angka centimeter (cm) bertambah dan berkurang sesuai jarak tangan Anda.
-* **Jika Muncul "PIN TERBALIK"**: Tukar posisi kabel pin D2 dan D3.
-
-#### 2. Uji Sensor Ultrasonik Bawah (Ketik: `BAWAH` atau `STREAM BAWAH`)
-* Arahkan sensor bawah menghadap ke lantai / meja datar.
-* Angkat sensor lebih tinggi (simulasi lubang/turunan) atau dekatkan ke lantai.
-* **Hasil Benar**: Jarak cm bertambah saat diangkat menjauhi permukaan.
-* **Jika Muncul "PIN TERBALIK"**: Tukar posisi kabel pin D8 dan D9.
-
-#### 3. Uji Sensor Kemiringan IMU MPU6050 (Ketik: `IMU` atau `STREAM IMU`)
-* **Hasil Benar**: Terbaca akselerasi X, Y, Z dan sudut kemiringan (°). Saat modul dimiringkan, sudut kemiringan akan berubah.
-* **Jika Muncul "LEPAS! Bus I2C tidak merespons"**:
-  1. Periksa kabel: **SDA = A4**, **SCL = A5** (jangan terbalik!).
-  2. Pastikan pin header modul GY-521 sudah **disolder mati** dengan timah.
-  3. Cabut colokan USB 5 detik lalu colokkan kembali untuk mereset bus I2C.
-
-#### 4. Uji Sensor Air (Ketik: `AIR` atau `STREAM AIR`)
-* **Kering**: Nilai ADC berada di rentang normal atau 0V.
-* **Basah**: Sentuh kisi-kisi sensor dengan jari basah / tisu basah.
-* **Hasil Benar**: Status berubah menjadi `[BASAH / TERKENA AIR]`.
-* *Catatan*: Jika memakai modul sensor LM393 (dengan potensiometer), modul tersebut tipe Active-LOW (1023 saat kering, dan nilai turun saat dicelup air).
+- **Kondisi Logika**: `mpuConnected == true` DAN `tiltDeg > 60.0°` bertahan terus-menerus selama `>= 2000 ms` (2 detik).
+- **Pengujian Fisik Riil**: Baringkan tongkat / sensor MPU6050 mendatar di lantai/meja (> 60°) selama minimal 2 detik.
+- **Simulasi Serial / Dashboard**: Ketik `FALL` atau `TILT 75` lalu Enter.
+- **Respon Aktuator**:
+  - **Buzzer (D6)**: [AKTIF] Bunyi pola kode internasional SOS Morse (`... --- ...`).
+  - **Motor (D5)**: [MATI] Getaran dinonaktifkan untuk menghemat daya baterai dan memfokuskan alarm pada audio lingkungan.
+- **Status Telemetri**: `TONGKAT_JATUH` (Status Code: `FALL_ALERT`).
 
 ---
 
-### Tahap 4: Simulasi Live Navigasi Katana (Perintah: `4`)
+### KASUS 2: Tepi Turunan / Lubang Jalan / Bibir Tangga (Prioritas 2 - Bahaya Taktil)
+Kondisi di mana ada penurunan permukaan jalan mendadak di depan langkah tunanetra.
 
-* **Tujuan**: Mencoba langsung algoritma kecerdasan buatan dan umpan balik Katana seolah-olah alat sudah terpasang di tongkat!
-* **Cara Memulai**: Ketik `4` lalu tekan **Enter**.
-* **Cara Mempraktekkan**:
-  1. Dekatkan tangan ke sensor depan pada jarak **< 40 cm** (Bahaya Dekat):
-     * 👉 Motor getar akan bergetar maksimal + Buzzer berbunyi cepat tanpa henti!
-  2. Jauhkan tangan ke jarak **40 cm - 90 cm** (Peringatan Sedang):
-     * 👉 Motor berdenyut sedang + Buzzer berbunyi bip berjarak.
-  3. Jauhkan tangan ke jarak **90 cm - 150 cm** (Waspada Jauh):
-     * 👉 Motor bergetar halus untuk memberi tahu ada objek jauh (Buzzer diam agar hening).
-  4. Bersihkan rintangan di depan (> 150 cm):
-     * 👉 Motor dan buzzer langsung diam tenang.
-  5. Jika sensor bawah diangkat tiba-tiba menjauhi lantai (> 15 cm):
-     * 👉 Alarm bahaya turunan / lubang langsung aktif!
+- **Kondisi Logika**: `downConnected == true` DAN selisih jarak bawah `dropDeltaCm > 15 cm` di atas baseline terkalibrasi (contoh: baseline 30 cm, jarak terukur > 45 cm) DAN kemiringan tongkat `tiltDeg < 45.0°` selama `>= 200 ms`.
+- **Pengujian Fisik Riil**: Pegang alat menghadap ke bawah di atas meja (~30 cm), lalu geser keluar bibir meja sehingga sensor menghadap langsung ke lantai ruang yang lebih dalam (> 45 cm).
+- **Simulasi Serial / Dashboard**: Ketik `DROP` atau `DOWN 55` lalu Enter.
+- **Respon Aktuator**:
+  - **Motor (D5)**: [AKTIF] 3 denyut getar taktil intensitas tinggi berturutan (160ms getar, 120ms hening, 160ms getar, 120ms hening, 160ms getar per siklus 1.3 detik).
+  - **Buzzer (D6)**: [MATI] Tetap hening agar tidak menimbulkan polusi pendengaran bagi pengguna.
+- **Status Telemetri**: `TEPI_TURUNAN` (Status Code: `DROP_ALERT`).
 
 ---
 
----
+### KASUS 3: Genangan Air / Permukaan Basah Licin (Prioritas 3 - Peringatan Permukaan)
+Kondisi di mana ujung bawah tongkat menyentuh genangan air, kubangan, atau permukaan jalan basah.
 
-## ⚡ PENGUJIAN LANGSUNG DENGAN `katana.ino` (FIRMWARE UTAMA)
-
-Jika Anda ingin langsung mengunggah dan menguji firmware produksi [`katana/katana.ino`](katana/katana.ino), file tersebut **sudah dilengkapi konsol diagnostik & perintah serial interaktif bawaan**!
-
-### 1. Cara Upload Firmware Utama:
-1. Di Arduino IDE, buka file `katana/katana.ino`.
-2. Klik tombol **Upload**.
-3. Buka **Serial Monitor** pada kecepatan **`115200 baud`**.
-4. Saat pertama kali boot, Arduino akan otomatis menjalankan:
-   * **Inisialisasi Pin & Sensor**
-   * **Kalibrasi Baseline Lantai**
-   * **Self-Test Singkat**: Motor getar bergetar sebentar (400ms) lalu buzzer berbunyi 2x beep.
+- **Kondisi Logika**: Sensor air aktif (`waterSensorInstalled == true`) DAN nilai ADC pin A0 `waterValue > 650`.
+- **Pengujian Fisik Riil**: Ketik `WATER ON` di Serial Monitor, lalu sentuhkan pelat kisi-kisi sensor air pin A0 ke air atau tisu basah.
+- **Simulasi Serial / Dashboard**: Ketik `WET` atau `WATER 850` lalu Enter.
+- **Respon Aktuator**:
+  - **Motor (D5)**: [AKTIF] 2 denyut getar panjang khas (500ms getar, 250ms hening, 500ms getar per siklus 1.9 detik).
+  - **Buzzer (D6)**: [MATI] Tetap hening.
+- **Status Telemetri**: `PERMUKAAN_BASAH` (Status Code: `WATER_ALERT`).
 
 ---
 
-### 2. Perintah Serial Interaktif Langsung di `katana.ino`:
+### KASUS 4: Rintangan Depan Jarak Sangat Dekat / Kritis (Prioritas 4 - Bahaya Benturan)
+Kondisi di mana objek atau dinding berada sangat dekat dan berisiko langsung menabrak tubuh tunanetra jika terus melangkah.
 
-Ketik perintah berikut di baris input Serial Monitor lalu tekan **Enter**:
+- **Kondisi Logika**: `frontConnected == true` DAN jarak ultrasonik depan `frontCm < 30 cm`.
+- **Pengujian Fisik Riil**: Dekatkan telapak tangan atau penghalang di depan sensor HC-SR04 depan pada jarak < 30 cm (misal 15 cm).
+- **Simulasi Serial / Dashboard**: Ketik `NEAR` atau `FRONT 15` lalu Enter.
+- **Respon Aktuator**:
+  - **Motor (D5)**: [AKTIF] Getaran kontinu frekuensi tinggi tanpa henti (PWM 240 pada pegangan).
+  - **Buzzer (D6)**: [MATI] Tetap hening.
+- **Status Telemetri**: `OBJEK_DEKAT` (Status Code: `OBJECT_NEAR`).
 
-| Perintah | Fungsi / Efek | Hasil yang Diharapkan |
+---
+
+### KASUS 5: Rintangan Depan Jarak Sedang (Prioritas 5 - Peringatan Langkah)
+Kondisi rintangan terdeteksi dalam jarak jangkauan langkah kaki berikutnya.
+
+- **Kondisi Logika**: `frontConnected == true` DAN jarak ultrasonik depan berada di rentang `30 cm <= frontCm < 60 cm`.
+- **Pengujian Fisik Riil**: Posisikan telapak tangan atau penghalang di depan sensor depan pada jarak 45 cm.
+- **Simulasi Serial / Dashboard**: Ketik `FRONT 45` lalu Enter.
+- **Respon Aktuator**:
+  - **Motor (D5)**: [AKTIF] Getaran berdenyut cepat (periode 400ms: 120ms bergetar, 280ms jeda).
+  - **Buzzer (D6)**: [MATI] Tetap hening.
+- **Status Telemetri**: `OBJEK_SEDANG` (Status Code: `OBJECT_MEDIUM`).
+
+---
+
+### KASUS 6: Rintangan Depan Jarak Jauh (Prioritas 6 - Waspada Arah)
+Kondisi rintangan mulai terdeteksi di kejauhan agar pengguna bersiap mengambil jalur alternatif.
+
+- **Kondisi Logika**: `frontConnected == true` DAN jarak ultrasonik depan berada di rentang `60 cm <= frontCm < 100 cm`.
+- **Pengujian Fisik Riil**: Posisikan penghalang di depan sensor depan pada jarak 80 cm.
+- **Simulasi Serial / Dashboard**: Ketik `FRONT 80` lalu Enter.
+- **Respon Aktuator**:
+  - **Motor (D5)**: [AKTIF] Getaran berdenyut santai / lambat (periode 1000ms: 100ms bergetar, 900ms jeda).
+  - **Buzzer (D6)**: [MATI] Tetap hening.
+- **Status Telemetri**: `OBJEK_WASPADA` (Status Code: `OBJECT_LOW`).
+
+---
+
+### KASUS 7: Jalur Aman / Normal Walkway (Prioritas 7 - Kondisi Normal)
+Kondisi jalan rata tanpa rintangan dalam radius aman.
+
+- **Kondisi Logika**: Depan `>= 100 cm`, Bawah delta `<= 15 cm`, Kemiringan `<= 60°`, dan Sensor Air `<= 650`.
+- **Pengujian Fisik Riil**: Arahkan tongkat ke ruang terbuka tanpa ada halangan di depan maupun turunan di bawah.
+- **Simulasi Serial / Dashboard**: Ketik `NORMAL` atau `DEMO OFF` lalu Enter.
+- **Respon Aktuator**:
+  - **Motor (D5)**: [MATI] Total hening/idle.
+  - **Buzzer (D6)**: [MATI] Total hening/idle.
+- **Status Telemetri**: `NORMAL` (Status Code: `NORMAL`).
+
+---
+
+### KASUS 8: Proteksi Kerusakan / Sensor Lepas (Mode Standby & Diagnostic)
+Kondisi di mana satu atau beberapa sensor dicabut, kabel jumper putus, atau pin terbalik.
+
+- **Kondisi Logika**: Pulsa echo timeout (> 25ms) atau bus I2C MPU6050 tidak memberikan respons ACK.
+- **Pengujian Fisik Riil**: Cabut salah satu atau seluruh kabel sensor ultrasonik / MPU6050 saat sistem berjalan.
+- **Simulasi Serial / Dashboard**: Ketik `DIAG` atau `CHECK` lalu Enter.
+- **Perilaku Proteksi Sistem**:
+  1. **Anti False-Alarm**: Sistem tidak akan memicu alarm turunan atau jatuh jika sensor terkait terlepas (`conn == false`).
+  2. **Auto-Pin Swapping**: Jika kabel TRIG dan ECHO tertukar (D2/D3 atau D8/D9), firmware otomatis mendeteksi dan menukar konfigurasi pin secara digital tanpa perlu mengubah kabel fisik.
+  3. **Aktuator Tetap Aman**: Motor dan Buzzer otomatis berada pada status [MATI] (`STANDBY`).
+- **Status Telemetri**: Menampilkan status per-sensor `LEPAS` pada log stream.
+
+---
+
+## 4. Daftar Perintah Cepat Uji Serial
+
+Gunakan daftar perintah berikut langsung di Serial Monitor:
+
+| Perintah Serial | Sasaran Kasus / Uji | Respon yang Diharapkan |
 |---|---|---|
-| **`DIAG`** atau **`CHECK`** | Diagnosa status koneksi 4 sensor secara serentak | Menampilkan status koneksi & jarak terkini tiap sensor |
-| **`TEST FRONT`** | Cek sensor depan HC-SR04 (D2/D3) | Terbaca jarak cm (+ deteksi auto-swap jika pin terbalik) |
-| **`TEST DOWN`** | Cek sensor bawah HC-SR04 (D8/D9) | Terbaca jarak lantai (+ deteksi auto-swap) |
-| **`TEST IMU`** | Cek sensor kemiringan MPU6050 | Menampilkan alamat I2C `0x68` dan nilai akselerometer |
-| **`TEST WATER`** | Cek sensor air analog di Pin A0 | Menampilkan status Kering / Basah |
-| **`TEST MOTOR`** | Uji getaran motor D5 selama 1.5 detik | Motor di pegangan bergetar nyata |
-| **`TEST BUZZER`** | Uji bunyi bip buzzer D6 selama 1.5 detik | Buzzer berbunyi pola beep |
-| **`TEST OUTPUT`** | Self-test motor getar dan buzzer berurutan | Motor getar berdenyut diikuti bunyi buzzer |
-| **`STOP`** | Matikan semua aktuator yang sedang aktif | Motor dan buzzer langsung hening |
+| `FALL` | Kasus 1: Tongkat Jatuh | Buzzer alarm SOS Morse aktif, Motor mati |
+| `DROP` | Kasus 2: Tepi Turunan | Motor 3 denyut taktil berulang, Buzzer mati |
+| `WET` | Kasus 3: Genangan Air | Motor 2 denyut panjang berulang, Buzzer mati |
+| `NEAR` | Kasus 4: Rintangan Dekat | Motor bergetar kontinu penuh, Buzzer mati |
+| `FRONT 45` | Kasus 5: Rintangan Sedang | Motor bergetar denyut cepat (400ms cadence) |
+| `FRONT 80` | Kasus 6: Rintangan Jauh | Motor bergetar denyut santai (1000ms cadence) |
+| `NORMAL` | Kasus 7: Jalur Aman | Motor dan Buzzer mati total |
+| `DIAG` | Kasus 8: Cek Kabel & Pin | Cetak status koneksi riil ke-4 sensor |
+| `TEST MOTOR` | Hardware Aktuator Motor | Motor D5 aktif bergetar selama 1.5 detik |
+| `TEST BUZZER` | Hardware Aktuator Buzzer | Buzzer D6 berbunyi beep selama 1.5 detik |
+| `TEST OUTPUT` | Self-Test Semua Aktuator | Siklus getar motor diikuti bunyi buzzer |
+| `STOP` | Reset Aktuator Manual | Mematikan paksa seluruh motor dan buzzer |
+| `WATER ON` | Aktivasi Sensor Air Fisik | Mengaktifkan pembacaan ADC pin A0 |
+| `WATER OFF` | Deaktivasi Sensor Air Fisik | Mencegah noise muatan statis pin A0 yang melayang |
+| `DEMO OFF` | Kembali ke Sensor Fisik | Menonaktifkan mode simulasi, kembali baca pin fisik |
 
 ---
 
-### 3. Skenario Uji Fisik Langsung di Lapangan:
+## 5. Lembar Ceklis Validasi Pengujian
 
-Lakukan 3 pengujian fisik berikut dengan tangan Anda:
+Gunakan tabel ini saat melakukan uji coba prototipe di lapangan:
 
-#### Skenario A: Uji Rintangan Depan (Sensor D2/D3)
-1. Dekatkan telapak tangan Anda di depan sensor HC-SR04 depan:
-   * Jarak **< 30 cm (`OBJEK_DEKAT`)**: Motor getar bergetar kontinu tanpa jeda!
-   * Jarak **30 - 60 cm (`OBJEK_SEDANG`)**: Motor getar berdenyut cepat (cadence 120ms).
-   * Jarak **60 - 100 cm (`OBJEK_WASPADA`)**: Motor getar berdenyut santai (cadence 350ms).
-   * Jarak **> 100 cm (`NORMAL`)**: Motor getar langsung berhenti (diam).
-
-#### Skenario B: Uji Tepi Turunan / Lubang Jalan (Sensor D8/D9)
-1. Letakkan alat di atas meja datar menghadap ke bawah (jarak wajar 20-35 cm).
-2. Geser ujung tongkat keluar bibir meja (sehingga sensor bawah melihat lantai bawah yang lebih dalam):
-   * Status berubah menjadi **`TEPI_TURUNAN`**.
-   * Motor getar menghasilkan **3 denyut taktil berulang** (*3 high-intensity haptic pulses*) untuk memperingatkan pengguna!
-
-#### Skenario C: Skenario Darurat Morse SOS (Tongkat Terjatuh)
-1. Jika modul IMU MPU6050 terpasang, baringkan alat mendatar di lantai (> 60°) selama 2 detik:
-   * Status berubah menjadi **`TONGKAT_JATUH`**.
-   * Buzzer aktif membunyikan kode internasional **SOS Morse (`... --- ...`)** secara periodik agar orang di sekitar dapat menolong tunanetra!
-2. *(Alternatif simulasi jika tanpa MPU)*: Ketik **`FALL`** di Serial Monitor untuk menguji nada SOS Morse. Ketik **`NORMAL`** untuk mereset kembali.
-
----
-
-## 🔍 Audit & Verifikasi Logika Firmware (`katana.ino`)
-
-Hasil audit arsitektur logika dan pohon keputusan sistem:
-
-```
-                  [ updateInputs() ]
-                          |
-             [ Sensor Presence Validator ]
-              /                         \
-      (Semua Lepas)                (Minimal 1 Aktif)
-            |                              |
-      [ STATE: STANDBY ]            [ decideState() ]
-       Motor: MATI                  Tangga Prioritas Bahaya:
-       Buzzer: MATI                 1. FALL_ALERT (Tongkat Jatuh: Morse SOS)
-                                    2. DROP_ALERT (Turunan / Lubang: 3 Denyut Taktil)
-                                    3. WATER_ALERT (Genangan Air: 2 Denyut Panjang)
-                                    4. OBJECT_NEAR (< 30cm: Getar Penuh Kontinu)
-                                    5. OBJECT_MEDIUM (30-60cm: Getar Cepat)
-                                    6. OBJECT_LOW (60-100cm: Getar Santai)
-                                    7. NORMAL (Aman: Motor & Buzzer Hening)
-```
-
-### ✅ Poin Kunci Keamanan & Kenyamanan yang Terverifikasi:
-1. **Sensory Conflict Prevention (Bebas Polusi Suara)**:
-   * Buzzer **HANYA** berbunyi saat situasi kritis darurat (**Tongkat Terjatuh / User Pingsan** via sinyal SOS Morse).
-   * Navigasi berjalan sehari-hari (rintangan depan, turunan, jalan basah) disalurkan melalui **Getaran Taktil di Pegangan**, sehingga tunanetra tidak mengalami kelelahan auditori (*auditory fatigue*) dan pendengarannya tetap bebas mendengar suara lingkungan sekitar.
-2. **Auto-Pin Swapping (Tahan Salah Colok)**:
-   * Jika kabel `TRIG` dan `ECHO` tertukar secara fisik di breadboard (misal D2 dan D3, atau D8 dan D9), firmware otomatis mendeteksi dan menukar peran pin melalui software secara live.
-3. **Ghost Ground-Drop Prevention**:
-   * Jika sensor bawah belum terpasang, sistem tidak akan memicu alarm turunan palsu. Alarm turunan hanya dievaluasi jika `downConnected == true` dan tongkat tidak sedang dimiringkan ekstrem.
-4. **Floating ADC Noise Shielding**:
-   * Pin A0 dinonaktifkan secara default (`waterSensorInstalled = false;`) sehingga muatan statis pin analog tidak memicu alarm air palsu. Cukup ketik `WATER ON` bila modul air fisik sudah siap.
-
+- [ ] **Uji 1**: Respon Morse SOS aktif saat dimiringkan > 60° selama 2 detik (`FALL`).
+- [ ] **Uji 2**: Motor menghasilkan 3 denyut saat dihadapkan pada bibir meja / turunan (`DROP`).
+- [ ] **Uji 3**: Motor menghasilkan 2 denyut panjang saat modul air mendeteksi cairan (`WET`).
+- [ ] **Uji 4**: Motor bergetar kontinu saat objek berada pada jarak < 30 cm (`NEAR`).
+- [ ] **Uji 5**: Motor bergetar cepat saat objek berada pada jarak 30 - 60 cm (`FRONT 45`).
+- [ ] **Uji 6**: Motor bergetar santai saat objek berada pada jarak 60 - 100 cm (`FRONT 80`).
+- [ ] **Uji 7**: Motor dan buzzer mati tenang saat jalur di depan dan bawah bersih (`NORMAL`).
+- [ ] **Uji 8**: Perintah `DIAG` melaporkan status koneksi pin dengan benar tanpa false alarm.
