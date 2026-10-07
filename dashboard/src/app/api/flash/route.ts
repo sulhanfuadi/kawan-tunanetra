@@ -4,9 +4,41 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
-// Lokasi avrdude bawaan Arduino IDE yang sudah terinstall di laptop
-const AVRDUDE_EXE = "C:\\Users\\ASUS'\\AppData\\Local\\Arduino15\\packages\\arduino\\tools\\avrdude\\8.0.0-arduino1\\bin\\avrdude.exe";
-const AVRDUDE_CONF = "C:\\Users\\ASUS'\\AppData\\Local\\Arduino15\\packages\\arduino\\tools\\avrdude\\8.0.0-arduino1\\etc\\avrdude.conf";
+// Pencarian dinamis avrdude bawaan Arduino IDE pada sistem
+function findAvrdude(): { exe: string; conf: string } | null {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  const baseToolsDir = path.join(localAppData, "Arduino15", "packages", "arduino", "tools", "avrdude");
+
+  if (fs.existsSync(baseToolsDir)) {
+    try {
+      const versions = fs.readdirSync(baseToolsDir).sort().reverse();
+      for (const v of versions) {
+        const exe = path.join(baseToolsDir, v, "bin", "avrdude.exe");
+        const conf = path.join(baseToolsDir, v, "etc", "avrdude.conf");
+        if (fs.existsSync(exe) && fs.existsSync(conf)) {
+          return { exe, conf };
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Fallback: Program Files
+  const progFiles = [
+    process.env["ProgramFiles"],
+    process.env["ProgramFiles(x86)"],
+    path.join(localAppData, "Programs", "Arduino IDE")
+  ].filter(Boolean) as string[];
+
+  for (const pf of progFiles) {
+    const candidateExe = path.join(pf, "resources", "app", "node_modules", "arduino-ide-extension", "bin", "avrdude.exe");
+    const candidateConf = path.join(path.dirname(candidateExe), "..", "etc", "avrdude.conf");
+    if (fs.existsSync(candidateExe) && fs.existsSync(candidateConf)) {
+      return { exe: candidateExe, conf: candidateConf };
+    }
+  }
+
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,10 +51,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Tidak ada file .hex yang diunggah" }, { status: 400 });
     }
 
-    if (!fs.existsSync(AVRDUDE_EXE)) {
+    const avrdude = findAvrdude();
+    if (!avrdude) {
       return NextResponse.json({
         success: false,
-        error: `Binary avrdude tidak ditemukan di ${AVRDUDE_EXE}`
+        error: "Engine avrdude tidak ditemukan. Pastikan Arduino IDE terinstall di komputer."
       }, { status: 500 });
     }
 
@@ -33,7 +66,7 @@ export async function POST(req: NextRequest) {
 
     // Format perintah AVRDUDE resmi Arduino IDE:
     // avrdude -C <conf> -v -V -p atmega328p -c arduino -b <baud> -P <port> -D -U flash:w:<hex>:i
-    const cmd = `"${AVRDUDE_EXE}" -C "${AVRDUDE_CONF}" -v -V -p atmega328p -c arduino -b ${baud} -P ${port} -D -U flash:w:"${tempHexPath}":i`;
+    const cmd = `"${avrdude.exe}" -C "${avrdude.conf}" -v -V -p atmega328p -c arduino -b ${baud} -P ${port} -D -U flash:w:"${tempHexPath}":i`;
 
     return new Promise<NextResponse>((resolve) => {
       exec(cmd, { timeout: 25000 }, (error, stdout, stderr) => {

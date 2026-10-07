@@ -500,6 +500,12 @@ export default function KatanaDashboard() {
   const [logFilter, setLogFilter] = useState<"all" | "stream" | "system" | "send">("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // UX & Compatibility states
+  const [isSerialSupported, setIsSerialSupported] = useState<boolean>(true);
+  const [isRefreshingPorts, setIsRefreshingPorts] = useState<boolean>(false);
+  const [isTestingMotor, setIsTestingMotor] = useState<boolean>(false);
+  const [isTestingBuzzer, setIsTestingBuzzer] = useState<boolean>(false);
+
   // Serial references
   const portRef = useRef<any>(null);
   const readerRef = useRef<any>(null);
@@ -1044,17 +1050,35 @@ export default function KatanaDashboard() {
     return () => clearInterval(interval);
   }, [isDemoMode, isConnected, isRecording, data]);
 
-  // Fetch ports saat mount
-  useEffect(() => {
-    fetch("/api/ports")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.ports && data.ports.length > 0) {
-          setAvailablePorts(data.ports);
+  // Pindai ulang port serial USB yang tersedia
+  const refreshPorts = async () => {
+    setIsRefreshingPorts(true);
+    try {
+      const res = await fetch("/api/ports");
+      const data = await res.json();
+      if (data.ports && data.ports.length > 0) {
+        setAvailablePorts(data.ports);
+        if (!data.ports.includes(selectedPort)) {
           setSelectedPort(data.ports[0]);
         }
-      })
-      .catch(() => {});
+        addLog(`[SISTEM] Port COM terdeteksi: ${data.ports.join(", ")}`);
+      } else {
+        addLog("[INFO] Tidak ada port COM aktif terdeteksi saat pemindaian.");
+      }
+    } catch (e: any) {
+      console.error(e);
+      addLog("[ERROR] Gagal memindai port COM.");
+    } finally {
+      setTimeout(() => setIsRefreshingPorts(false), 300);
+    }
+  };
+
+  // Cek dukungan browser dan fetch port saat mount
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      setIsSerialSupported("serial" in navigator);
+    }
+    refreshPorts();
   }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1174,17 +1198,18 @@ export default function KatanaDashboard() {
     }
   };
 
-  let buffer = "";
   const readLoop = async (reader: any) => {
-    const decoder = new TextDecoder();
+    let localBuffer = "";
+    const textDecoder = new TextDecoder();
     try {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         if (value) {
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() || "";
+          const str = typeof value === "string" ? value : textDecoder.decode(value, { stream: true });
+          localBuffer += str;
+          const lines = localBuffer.split(/\r?\n/);
+          localBuffer = lines.pop() || "";
           for (const rawLine of lines) {
             const line = rawLine.trim();
             if (line.length > 0) {
@@ -1196,6 +1221,7 @@ export default function KatanaDashboard() {
       }
     } catch (err: any) {
       console.error("Read loop selesai:", err);
+      addLog(`[STREAM ERROR] Jalur data terputus: ${err.message}`);
     } finally {
       try {
         reader.releaseLock();
@@ -1469,27 +1495,43 @@ export default function KatanaDashboard() {
     }
 
     if (action === "MOTOR_PULSE") {
+      setIsTestingMotor(true);
+      setTimeout(() => setIsTestingMotor(false), 1500);
       addLog("[UJI AKTUATOR] Menguji Motor Getar (D5 PWM) selama 1.5 detik...");
       sendSerial("TEST MOTOR");
     } else if (action === "MOTOR_ON") {
+      setIsTestingMotor(true);
       addLog("[UJI AKTUATOR] Menyalakan Motor Getar (D5 PWM) terus-menerus...");
       sendSerial("MOTOR ON");
     } else if (action === "MOTOR_OFF") {
+      setIsTestingMotor(false);
       addLog("[UJI AKTUATOR] Mematikan Motor Getar (D5)...");
       sendSerial("MOTOR OFF");
     } else if (action === "BUZZER_BEEP") {
+      setIsTestingBuzzer(true);
+      setTimeout(() => setIsTestingBuzzer(false), 1500);
       addLog("[UJI AKTUATOR] Menguji Buzzer (D6) dengan pola Beep selama 1.5 detik...");
       sendSerial("TEST BUZZER");
     } else if (action === "BUZZER_ON") {
+      setIsTestingBuzzer(true);
       addLog("[UJI AKTUATOR] Menyalakan Buzzer (D6) terus-menerus...");
       sendSerial("BUZZER ON");
     } else if (action === "BUZZER_OFF") {
+      setIsTestingBuzzer(false);
       addLog("[UJI AKTUATOR] Mematikan Buzzer (D6)...");
       sendSerial("BUZZER OFF");
     } else if (action === "ALL_OUTPUT") {
+      setIsTestingMotor(true);
+      setIsTestingBuzzer(true);
+      setTimeout(() => {
+        setIsTestingMotor(false);
+        setIsTestingBuzzer(false);
+      }, 1500);
       addLog("[UJI AKTUATOR] Menjalankan Self-Test Semua Aktuator (Motor & Buzzer)...");
       sendSerial("TEST OUTPUT");
     } else if (action === "STOP_ALL") {
+      setIsTestingMotor(false);
+      setIsTestingBuzzer(false);
       addLog("[UJI AKTUATOR] Menghentikan semua uji aktuator manual...");
       sendSerial("STOP");
     }
@@ -1624,8 +1666,28 @@ export default function KatanaDashboard() {
     <div className="min-h-screen bg-zinc-100/70 dark:bg-black text-zinc-900 dark:text-zinc-100 transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 space-y-4">
         
-        {/* Streamlined Single-Line Header (Zero Layout Shift on Language Toggle) */}
-        <header className="flex items-center justify-between px-4 py-2.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xs">
+        {/* Browser Incompatibility Notice Banner */}
+        {!isSerialSupported && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3.5 px-4 bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 rounded-xl text-amber-900 dark:text-amber-200 text-xs shadow-2xs">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+              <span>
+                <strong>Browser Tidak Mendukung Web Serial API:</strong> Anda sedang menggunakan browser non-Chromium (seperti Zen Browser atau Firefox). Untuk membaca data telemetri USB secara langsung, silakan buka dashboard ini di <strong>Google Chrome</strong> atau <strong>Microsoft Edge</strong>.
+              </span>
+            </div>
+            <a
+              href="https://www.google.com/chrome/"
+              target="_blank"
+              rel="noreferrer"
+              className="underline text-[11px] font-mono shrink-0 hover:text-amber-950 dark:hover:text-amber-100 font-bold self-end sm:self-auto"
+            >
+              Buka di Chrome &rarr;
+            </a>
+          </div>
+        )}
+
+        {/* Streamlined Responsive Header */}
+        <header className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 px-4 py-2.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xs">
           
           {/* Brand Left */}
           <div className="flex items-center gap-3">
@@ -1646,8 +1708,8 @@ export default function KatanaDashboard() {
             </div>
           </div>
 
-          {/* Controls Right - Locked Fixed Dimensions to Guarantee Zero Layout Shift */}
-          <div className="flex items-center gap-2">
+          {/* Controls Right - Locked Fixed Dimensions with Responsive Flow */}
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-end">
             
             {/* Connection Status Pill (Fixed Width 176px / w-44) */}
             <div className="hidden md:flex items-center justify-center gap-1.5 w-44 h-8 px-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-mono shrink-0">
@@ -1962,36 +2024,52 @@ export default function KatanaDashboard() {
                   <button
                     type="button"
                     onClick={() => testTriggerActuator("MOTOR_PULSE")}
-                    className="px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900 text-[10px] font-mono font-bold cursor-pointer transition-all flex items-center gap-1"
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold cursor-pointer transition-all flex items-center gap-1 border ${
+                      isTestingMotor
+                        ? "bg-amber-500 text-white border-amber-600 animate-pulse shadow-xs"
+                        : "bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-900"
+                    }`}
                     title="Getarkan motor getar di pin D5 selama 1.5 detik (TEST MOTOR)"
                   >
-                    <Vibrate className="w-3 h-3" />
-                    Getar Motor (1.5s)
+                    <Vibrate className={`w-3 h-3 ${isTestingMotor ? "animate-spin" : ""}`} />
+                    {isTestingMotor ? "Menggetar..." : "Getar Motor (1.5s)"}
                   </button>
                   <button
                     type="button"
                     onClick={() => testTriggerActuator(data.motor === "ON" ? "MOTOR_OFF" : "MOTOR_ON")}
-                    className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold cursor-pointer transition-all border ${
+                      data.motor === "ON"
+                        ? "bg-amber-500 text-white border-amber-600 shadow-xs"
+                        : "bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800"
+                    }`}
                     title="Nyalakan / matikan motor getar secara manual"
                   >
-                    {data.motor === "ON" ? "Motor: OFF" : "Motor: ON"}
+                    {data.motor === "ON" ? "Motor: ON (Aktif)" : "Motor: ON"}
                   </button>
                   <button
                     type="button"
                     onClick={() => testTriggerActuator("BUZZER_BEEP")}
-                    className="px-2.5 py-1 rounded-md bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-900 text-[10px] font-mono font-bold cursor-pointer transition-all flex items-center gap-1"
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold cursor-pointer transition-all flex items-center gap-1 border ${
+                      isTestingBuzzer
+                        ? "bg-rose-500 text-white border-rose-600 animate-pulse shadow-xs"
+                        : "bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-900"
+                    }`}
                     title="Bunyikan buzzer pola beep di pin D6 selama 1.5 detik (TEST BUZZER)"
                   >
-                    <Volume2 className="w-3 h-3" />
-                    Beep Buzzer (1.5s)
+                    <Volume2 className={`w-3 h-3 ${isTestingBuzzer ? "animate-bounce" : ""}`} />
+                    {isTestingBuzzer ? "Berbunyi..." : "Beep Buzzer (1.5s)"}
                   </button>
                   <button
                     type="button"
                     onClick={() => testTriggerActuator(data.buzzer === "SOS" ? "BUZZER_OFF" : "BUZZER_ON")}
-                    className="px-2.5 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800 text-[10px] font-mono font-bold cursor-pointer transition-all"
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-mono font-bold cursor-pointer transition-all border ${
+                      data.buzzer === "SOS"
+                        ? "bg-rose-500 text-white border-rose-600 shadow-xs"
+                        : "bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-800"
+                    }`}
                     title="Nyalakan / matikan buzzer secara manual"
                   >
-                    {data.buzzer === "SOS" ? "Buzzer: OFF" : "Buzzer: ON"}
+                    {data.buzzer === "SOS" ? "Buzzer: ON (Aktif)" : "Buzzer: ON"}
                   </button>
                   <button
                     type="button"
@@ -2951,16 +3029,27 @@ export default function KatanaDashboard() {
                 <div className="flex flex-wrap items-center gap-3 text-xs">
                   <div className="flex items-center gap-1.5">
                     <span className="text-zinc-500 font-medium">Port COM:</span>
-                    <select
-                      value={selectedPort}
-                      onChange={(e) => setSelectedPort(e.target.value)}
-                      disabled={isFlashing}
-                      className="px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg font-mono text-xs font-semibold focus:outline-none"
-                    >
-                      {availablePorts.map((p) => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-1">
+                      <select
+                        value={selectedPort}
+                        onChange={(e) => setSelectedPort(e.target.value)}
+                        disabled={isFlashing || isRefreshingPorts}
+                        className="px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg font-mono text-xs font-semibold focus:outline-none"
+                      >
+                        {availablePorts.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={refreshPorts}
+                        disabled={isRefreshingPorts || isFlashing}
+                        className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 cursor-pointer transition-all"
+                        title="Pindai ulang port serial USB yang terhubung"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingPorts ? "animate-spin text-sky-500" : ""}`} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-1.5">
