@@ -46,6 +46,7 @@ bool lastDigitalState[14] = {false};
 unsigned long actuatorTimer = 0;
 byte actuatorStep = 255;
 byte actuatorCount = 0;
+byte actuatorCycleCount = 0;
 
 void printMenu() {
   Serial.println(F("\n========================================================"));
