@@ -57,6 +57,26 @@ interface TelemetryData {
   buzzer: string;
 }
 
+export interface TelemetryRecord {
+  no: number;
+  timestamp: string;
+  elapsedSec: number;
+  frontCm: number | string;
+  downCm: number | string;
+  deltaDownCm: number | string;
+  tiltDeg: number | string;
+  waterVal: number | string;
+  waterCondition: string;
+  waterBinary: number;
+  state: string;
+  hazardCode: number;
+  motor: string;
+  motorBinary: number;
+  buzzer: string;
+  buzzerBinary: number;
+  source: string;
+}
+
 const initialTelemetryState: TelemetryData = {
   frontConnected: false,
   frontCm: null,
@@ -166,6 +186,13 @@ const translations = {
     recDuration: "Durasi:",
     restoreBackup: "Pulihkan Cadangan",
     backupFound: "Cadangan data sesi sebelumnya terdeteksi",
+    copyTsv: "Salin TSV (Excel)",
+    copiedTsv: "Tersalin!",
+    downloadJson: "Unduh JSON",
+    sessionSummary: "Ringkasan Metrik Sesi:",
+    avgDistance: "Rata-rata Depan",
+    maxTilt: "Kemiringan Maks",
+    hazardEvents: "Pemicu Bahaya",
     
     // Simulation Panel
     simTitle: "Panel Simulasi Hardware (Wokwi Style)",
@@ -321,6 +348,13 @@ const translations = {
     recDuration: "Duration:",
     restoreBackup: "Restore Backup",
     backupFound: "Previous session backup detected",
+    copyTsv: "Copy TSV (Excel)",
+    copiedTsv: "Copied!",
+    downloadJson: "Download JSON",
+    sessionSummary: "Session Metrics Summary:",
+    avgDistance: "Avg Front",
+    maxTilt: "Max Tilt",
+    hazardEvents: "Hazard Triggers",
     
     // Simulation Panel
     simTitle: "Hardware Simulation Panel (Wokwi Style)",
@@ -443,17 +477,9 @@ export default function KatanaDashboard() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordCount, setRecordCount] = useState(0);
   const [recordDuration, setRecordDuration] = useState(0);
-  const recordedDataRef = useRef<Array<{
-    timestamp: string;
-    frontCm: number | string;
-    downCm: number | string;
-    tiltDeg: number | string;
-    waterVal: number | string;
-    state: string;
-    motor: string;
-    buzzer: string;
-    source: string;
-  }>>([]);
+  const recordedDataRef = useRef<TelemetryRecord[]>([]);
+  const recordingStartTimeRef = useRef<number | null>(null);
+  const [copiedTsv, setCopiedTsv] = useState(false);
   const isRecordingRef = useRef(false);
   const dataRef = useRef<TelemetryData>(initialTelemetryState);
   const [hasBackup, setHasBackup] = useState(false);
@@ -679,6 +705,19 @@ export default function KatanaDashboard() {
     return `${m}:${s}`;
   };
 
+  const getHazardCode = (st: string) => {
+    switch (st.toUpperCase()) {
+      case "TONGKAT_JATUH": return 6;
+      case "TEPI_TURUNAN": return 5;
+      case "PERMUKAAN_BASAH": return 4;
+      case "OBJEK_DEKAT": return 3;
+      case "OBJEK_SEDANG": return 2;
+      case "OBJEK_WASPADA": return 1;
+      case "NORMAL": return 0;
+      default: return 0;
+    }
+  };
+
   const recordDataPoint = (dataPoint: {
     frontCm: number | string;
     downCm: number | string;
@@ -695,14 +734,51 @@ export default function KatanaDashboard() {
     const pad3 = (n: number) => n.toString().padStart(3, "0");
     const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad3(now.getMilliseconds())}`;
 
-    recordedDataRef.current.push({
+    const startTime = recordingStartTimeRef.current || Date.now();
+    const elapsedSec = Math.max(0, (Date.now() - startTime) / 1000);
+
+    const downNum = typeof dataPoint.downCm === "number" ? dataPoint.downCm : (dataPoint.downCm !== "" ? parseFloat(dataPoint.downCm as string) : null);
+    const deltaDownCm = downNum !== null ? Math.max(0, Math.round(downNum - 30)) : "";
+
+    const waterNum = typeof dataPoint.waterVal === "number" ? dataPoint.waterVal : (dataPoint.waterVal !== "" ? parseInt(dataPoint.waterVal as string, 10) : null);
+    const waterCondition = waterNum !== null ? (waterNum > 650 ? "BASAH" : "KERING") : "TIDAK_DIKETAHUI";
+    const waterBinary = waterNum !== null ? (waterNum > 650 ? 1 : 0) : 0;
+
+    const st = dataPoint.state || "NORMAL";
+    const hazardCode = getHazardCode(st);
+
+    const mot = (dataPoint.motor || "OFF").toUpperCase();
+    const motorBinary = mot === "ON" ? 1 : 0;
+
+    const buz = (dataPoint.buzzer || "DIAM").toUpperCase();
+    const buzzerBinary = buz === "SOS" ? 1 : 0;
+
+    const record: TelemetryRecord = {
+      no: recordedDataRef.current.length + 1,
       timestamp,
-      ...dataPoint
-    });
+      elapsedSec: parseFloat(elapsedSec.toFixed(3)),
+      frontCm: dataPoint.frontCm !== null ? dataPoint.frontCm : "",
+      downCm: dataPoint.downCm !== null ? dataPoint.downCm : "",
+      deltaDownCm,
+      tiltDeg: dataPoint.tiltDeg !== null ? dataPoint.tiltDeg : "",
+      waterVal: dataPoint.waterVal !== null ? dataPoint.waterVal : "",
+      waterCondition,
+      waterBinary,
+      state: st,
+      hazardCode,
+      motor: mot,
+      motorBinary,
+      buzzer: buz,
+      buzzerBinary,
+      source: dataPoint.source
+    };
+
+    recordedDataRef.current.push(record);
     setRecordCount(recordedDataRef.current.length);
   };
 
   const startRecording = () => {
+    recordingStartTimeRef.current = Date.now();
     setIsRecording(true);
     isRecordingRef.current = true;
     setRecordDuration(0);
@@ -725,6 +801,7 @@ export default function KatanaDashboard() {
 
   const clearRecords = () => {
     recordedDataRef.current = [];
+    recordingStartTimeRef.current = null;
     setRecordCount(0);
     setRecordDuration(0);
     setHasBackup(false);
@@ -778,6 +855,30 @@ export default function KatanaDashboard() {
     } catch (e) {}
   }, []);
 
+  // Summary statistics for session
+  const getSessionMetrics = () => {
+    const list = recordedDataRef.current;
+    if (list.length === 0) return null;
+
+    const frontVals = list
+      .map((r) => (typeof r.frontCm === "number" ? r.frontCm : parseFloat(r.frontCm as string)))
+      .filter((v) => !isNaN(v) && v > 0);
+    const avgFront = frontVals.length > 0 ? (frontVals.reduce((a, b) => a + b, 0) / frontVals.length).toFixed(1) : "-";
+
+    const tiltVals = list
+      .map((r) => (typeof r.tiltDeg === "number" ? r.tiltDeg : parseFloat(r.tiltDeg as string)))
+      .filter((v) => !isNaN(v));
+    const maxTilt = tiltVals.length > 0 ? Math.max(...tiltVals).toFixed(1) : "-";
+
+    const hazardTriggers = list.filter((r) => r.hazardCode > 0).length;
+
+    return {
+      total: list.length,
+      avgFront,
+      maxTilt,
+      hazardTriggers
+    };
+  };
 
   const downloadCsv = () => {
     if (recordedDataRef.current.length === 0) {
@@ -786,14 +887,21 @@ export default function KatanaDashboard() {
     }
 
     const headers = [
+      "No",
       "Timestamp",
+      "Detik_Relatif",
       "Jarak_Depan_cm",
       "Jarak_Bawah_cm",
+      "Delta_Turunan_cm",
       "Kemiringan_MPU_deg",
       "Sensor_Air_ADC",
+      "Kondisi_Air",
       "Status_Bahaya",
+      "Kode_Bahaya_Num",
       "Motor_Haptik",
+      "Motor_Biner",
       "Buzzer_SOS",
+      "Buzzer_Biner",
       "Sumber_Data"
     ];
 
@@ -801,14 +909,21 @@ export default function KatanaDashboard() {
 
     for (const row of recordedDataRef.current) {
       const values = [
+        row.no,
         `"${row.timestamp}"`,
+        row.elapsedSec.toFixed(3),
         row.frontCm !== "" ? row.frontCm : "",
         row.downCm !== "" ? row.downCm : "",
+        row.deltaDownCm !== "" ? row.deltaDownCm : "",
         row.tiltDeg !== "" ? row.tiltDeg : "",
         row.waterVal !== "" ? row.waterVal : "",
+        `"${row.waterCondition}"`,
         `"${row.state}"`,
+        row.hazardCode,
         `"${row.motor}"`,
+        row.motorBinary,
         `"${row.buzzer}"`,
+        row.buzzerBinary,
         `"${row.source}"`
       ];
       csvRows.push(values.join(","));
@@ -832,6 +947,83 @@ export default function KatanaDashboard() {
     URL.revokeObjectURL(url);
 
     addLog(`[SISTEM] File dataset ${filename} (${recordedDataRef.current.length} baris) berhasil diunduh.`);
+  };
+
+  const copyTsv = () => {
+    if (recordedDataRef.current.length === 0) return;
+
+    const headers = [
+      "No",
+      "Timestamp",
+      "Detik_Relatif",
+      "Jarak_Depan_cm",
+      "Jarak_Bawah_cm",
+      "Delta_Turunan_cm",
+      "Kemiringan_MPU_deg",
+      "Sensor_Air_ADC",
+      "Kondisi_Air",
+      "Status_Bahaya",
+      "Kode_Bahaya_Num",
+      "Motor_Haptik",
+      "Motor_Biner",
+      "Buzzer_SOS",
+      "Buzzer_Biner",
+      "Sumber_Data"
+    ];
+
+    const tsvRows = [headers.join("\t")];
+
+    for (const row of recordedDataRef.current) {
+      const values = [
+        row.no,
+        row.timestamp,
+        row.elapsedSec.toFixed(3),
+        row.frontCm !== "" ? row.frontCm : "",
+        row.downCm !== "" ? row.downCm : "",
+        row.deltaDownCm !== "" ? row.deltaDownCm : "",
+        row.tiltDeg !== "" ? row.tiltDeg : "",
+        row.waterVal !== "" ? row.waterVal : "",
+        row.waterCondition,
+        row.state,
+        row.hazardCode,
+        row.motor,
+        row.motorBinary,
+        row.buzzer,
+        row.buzzerBinary,
+        row.source
+      ];
+      tsvRows.push(values.join("\t"));
+    }
+
+    const tsvString = tsvRows.join("\n");
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(tsvString);
+      setCopiedTsv(true);
+      setTimeout(() => setCopiedTsv(false), 2000);
+      addLog(`[SISTEM] ${recordedDataRef.current.length} baris data disalin ke clipboard dalam format TSV (siap paste langsung ke Excel).`);
+    }
+  };
+
+  const downloadJson = () => {
+    if (recordedDataRef.current.length === 0) return;
+
+    const jsonString = JSON.stringify(recordedDataRef.current, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const filename = `katana_telemetry_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`;
+
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    addLog(`[SISTEM] File JSON dataset ${filename} berhasil diunduh.`);
   };
 
   // Periodic recording during Demo Mode when disconnected
@@ -2410,12 +2602,12 @@ export default function KatanaDashboard() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {!isRecording ? (
                     <button
                       type="button"
                       onClick={startRecording}
-                      className="flex-1 h-7.5 flex items-center justify-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-950 font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs"
+                      className="flex-1 h-7.5 flex items-center justify-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-950 font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs min-w-[100px]"
                     >
                       <Play className="w-3 h-3 fill-current" />
                       <span>{t.startRec}</span>
@@ -2424,7 +2616,7 @@ export default function KatanaDashboard() {
                     <button
                       type="button"
                       onClick={stopRecording}
-                      className="flex-1 h-7.5 flex items-center justify-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs animate-pulse"
+                      className="flex-1 h-7.5 flex items-center justify-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs animate-pulse min-w-[100px]"
                     >
                       <Square className="w-3 h-3 fill-current" />
                       <span>{t.stopRec}</span>
@@ -2435,14 +2627,44 @@ export default function KatanaDashboard() {
                     type="button"
                     onClick={downloadCsv}
                     disabled={recordCount === 0}
-                    className={`h-7.5 px-3 flex items-center justify-center gap-1.5 font-bold text-xs rounded-lg border transition-all cursor-pointer ${
+                    className={`h-7.5 px-2.5 flex items-center justify-center gap-1 font-bold text-xs rounded-lg border transition-all cursor-pointer ${
                       recordCount > 0
-                        ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs"
+                        ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-950 border-zinc-900 dark:border-white shadow-xs"
                         : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 border-zinc-200 dark:border-zinc-800 cursor-not-allowed"
                     }`}
                   >
-                    <Download className="w-3 h-3" />
-                    <span>{t.downloadCsv}</span>
+                    <Download className="w-3.5 h-3.5" />
+                    <span>CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={copyTsv}
+                    disabled={recordCount === 0}
+                    title="Salin TSV (langsung paste ke Excel / Google Sheets)"
+                    className={`h-7.5 px-2 flex items-center justify-center gap-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                      recordCount > 0
+                        ? "bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white border-zinc-300 dark:border-zinc-700"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 border-zinc-200 dark:border-zinc-800 cursor-not-allowed"
+                    }`}
+                  >
+                    {copiedTsv ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedTsv ? t.copiedTsv : "TSV"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={downloadJson}
+                    disabled={recordCount === 0}
+                    title="Unduh JSON Dataset"
+                    className={`h-7.5 px-2 flex items-center justify-center gap-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                      recordCount > 0
+                        ? "bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white border-zinc-300 dark:border-zinc-700"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 border-zinc-200 dark:border-zinc-800 cursor-not-allowed"
+                    }`}
+                  >
+                    <FileCode className="w-3 h-3" />
+                    <span>JSON</span>
                   </button>
 
                   {recordCount > 0 && !isRecording && (
@@ -2456,6 +2678,28 @@ export default function KatanaDashboard() {
                     </button>
                   )}
                 </div>
+
+                {/* Session Metrics Strip */}
+                {recordCount > 0 && (() => {
+                  const stats = getSessionMetrics();
+                  if (!stats) return null;
+                  return (
+                    <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 grid grid-cols-3 gap-2 text-center text-zinc-600 dark:text-zinc-400 font-mono text-[10px]">
+                      <div className="bg-white dark:bg-zinc-950 p-1.5 rounded border border-zinc-200 dark:border-zinc-800">
+                        <div className="text-[9px] text-zinc-400 font-sans">{t.avgDistance}</div>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100">{stats.avgFront} cm</div>
+                      </div>
+                      <div className="bg-white dark:bg-zinc-950 p-1.5 rounded border border-zinc-200 dark:border-zinc-800">
+                        <div className="text-[9px] text-zinc-400 font-sans">{t.maxTilt}</div>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100">{stats.maxTilt}°</div>
+                      </div>
+                      <div className="bg-white dark:bg-zinc-950 p-1.5 rounded border border-zinc-200 dark:border-zinc-800">
+                        <div className="text-[9px] text-zinc-400 font-sans">{t.hazardEvents}</div>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100">{stats.hazardTriggers}x</div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {hasBackup && recordCount === 0 && (
                   <div className="flex items-center justify-between p-2 bg-zinc-200/60 dark:bg-zinc-800/60 border border-zinc-300 dark:border-zinc-700 rounded-lg text-xs">
@@ -2948,14 +3192,44 @@ export default function KatanaDashboard() {
                     type="button"
                     onClick={downloadCsv}
                     disabled={recordCount === 0}
-                    className={`h-7 px-3 flex items-center gap-1.5 font-bold text-xs rounded-lg border transition-all cursor-pointer ${
+                    className={`h-7 px-2.5 flex items-center gap-1 font-bold text-xs rounded-lg border transition-all cursor-pointer ${
                       recordCount > 0
-                        ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs"
+                        ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-950 border-zinc-900 dark:border-white shadow-xs"
                         : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 border-zinc-200 dark:border-zinc-800 cursor-not-allowed"
                     }`}
                   >
-                    <Download className="w-3 h-3" />
-                    <span>{t.downloadCsv}</span>
+                    <Download className="w-3.5 h-3.5" />
+                    <span>CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={copyTsv}
+                    disabled={recordCount === 0}
+                    title="Salin TSV (langsung paste ke Excel / Google Sheets)"
+                    className={`h-7 px-2 flex items-center gap-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                      recordCount > 0
+                        ? "bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white border-zinc-300 dark:border-zinc-700"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 border-zinc-200 dark:border-zinc-800 cursor-not-allowed"
+                    }`}
+                  >
+                    {copiedTsv ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedTsv ? t.copiedTsv : "TSV"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={downloadJson}
+                    disabled={recordCount === 0}
+                    title="Unduh JSON Dataset"
+                    className={`h-7 px-2 flex items-center gap-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                      recordCount > 0
+                        ? "bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white border-zinc-300 dark:border-zinc-700"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 border-zinc-200 dark:border-zinc-800 cursor-not-allowed"
+                    }`}
+                  >
+                    <FileCode className="w-3 h-3" />
+                    <span>JSON</span>
                   </button>
 
                   {recordCount > 0 && !isRecording && (
