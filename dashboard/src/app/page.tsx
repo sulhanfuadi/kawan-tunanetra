@@ -1674,16 +1674,21 @@ export default function KatanaDashboard() {
 
               {/* Big Readout */}
               <div className="flex items-baseline justify-between pt-1">
-                <div className="flex items-baseline gap-1">
+                <div className="flex items-baseline gap-1.5">
                   <span className="text-3xl font-black font-mono tracking-tight text-zinc-900 dark:text-white tabular-nums">
-                    {data.downConnected && data.downCm !== null ? `${Math.max(0, data.downCm - 30)}` : "--"}
+                    {data.downConnected && data.downCm !== null ? `${data.downCm}` : "--"}
                   </span>
-                  <span className="text-xs font-mono font-semibold text-zinc-400">{t.unitDelta}</span>
+                  <span className="text-xs font-mono font-semibold text-zinc-400">cm</span>
+                  {data.downConnected && data.downCm !== null && (
+                    <span className="text-[10px] font-mono font-medium text-zinc-500 dark:text-zinc-400">
+                      (Δ +{Math.max(0, data.downCm - 25)}cm)
+                    </span>
+                  )}
                 </div>
                 <span className="text-[10px] font-mono font-bold text-zinc-500">
                   {!data.downConnected
                     ? t.bracketOffline
-                    : data.downCm! - 30 > 15
+                    : data.downCm! - 25 > 15
                     ? t.bracketHazard
                     : t.bracketNormal}
                 </span>
@@ -1696,12 +1701,12 @@ export default function KatanaDashboard() {
                     className={`h-full rounded-full transition-all duration-300 ${
                       !data.downConnected
                         ? "w-0"
-                        : data.downCm! - 30 > 15
+                        : data.downCm! - 25 > 15
                         ? "bg-rose-500"
                         : "bg-zinc-700 dark:bg-zinc-300"
                     }`}
                     style={{
-                      width: `${data.downConnected && data.downCm !== null ? Math.min(100, Math.max(8, ((data.downCm - 30) / 40) * 100)) : 0}%`
+                      width: `${data.downConnected && data.downCm !== null ? Math.min(100, Math.max(8, ((data.downCm - 25) / 40) * 100)) : 0}%`
                     }}
                   />
                 </div>
@@ -1717,7 +1722,7 @@ export default function KatanaDashboard() {
                 <div className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300 truncate">
                   {!data.downConnected
                     ? t.sensorDisconnected
-                    : data.downCm! - 30 > 15
+                    : data.downCm! - 25 > 15
                     ? t.downHazard
                     : t.downClear}
                 </div>
@@ -1848,7 +1853,9 @@ export default function KatanaDashboard() {
                   <span className="text-3xl font-black font-mono tracking-tight text-zinc-900 dark:text-white tabular-nums">
                     {data.waterConnected && data.waterVal !== null ? data.waterVal : "--"}
                   </span>
-                  <span className="text-xs font-mono font-semibold text-zinc-400">/ 1023 ADC</span>
+                  {data.waterConnected && data.waterVal !== null ? (
+                    <span className="text-xs font-mono font-semibold text-zinc-400">/ 1023 ADC</span>
+                  ) : null}
                 </div>
                 <span className="text-[10px] font-mono font-bold text-zinc-500">
                   {!data.waterConnected || data.waterVal === null

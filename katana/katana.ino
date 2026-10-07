@@ -59,7 +59,11 @@ unsigned long lastReportMs = 0;
 bool frontConnected = false;
 bool downConnected  = false;
 bool mpuConnected   = false;
-bool waterConnected = true;
+bool waterConnected = false;
+
+// Konfigurasi Sensor Air Fisik (Pin A0)
+// Set ke false jika modul sensor air fisik belum dipasang agar pin A0 yang melayang (floating) tidak menghasilkan data palsu
+bool waterSensorInstalled = false;
 
 float frontCm = -1.0;
 float downCm  = -1.0;
@@ -318,6 +322,20 @@ void processSerialCommand(String cmd) {
     return;
   }
 
+  if (upper == "WATER ON" || upper == "WATER:ON") {
+    waterSensorInstalled = true;
+    Serial.println(F("[SENSOR] Sensor Air A0 DIAKTIFKAN."));
+    return;
+  }
+
+  if (upper == "WATER OFF" || upper == "WATER:OFF") {
+    waterSensorInstalled = false;
+    waterConnected = false;
+    waterValue = 0;
+    Serial.println(F("[SENSOR] Sensor Air A0 DINONAKTIFKAN (Status: LEPAS)."));
+    return;
+  }
+
   if (upper == "FALL" || upper == "DEMO:FALL") {
     demoMode = true;
     simTiltDeg = 75.0;
@@ -448,6 +466,10 @@ void processSerialCommand(String cmd) {
   }
 
   if (upper == "TEST WATER" || upper == "TEST:WATER") {
+    if (!waterSensorInstalled) {
+      Serial.println(F("[TEST SENSOR AIR A0] Sensor Air DINONAKTIFKAN / BELUM DIPASANG di Pin A0 (Ketik 'WATER ON' jika sudah dipasang)."));
+      return;
+    }
     int val = analogRead(PIN_WATER_RAW);
     Serial.print(F("[TEST SENSOR AIR A0] Terbaca ADC: "));
     Serial.print(val);
@@ -626,9 +648,14 @@ void updateInputs() {
       dropDeltaCm = 0;
     }
 
-    // 3. Baca sensor air (nilai normal udara 120-450, basah >650, lepas/GND <60)
-    waterValue = analogRead(PIN_WATER_RAW);
-    waterConnected = (waterValue >= 100);
+    // 3. Baca sensor air (hanya jika terpasang fisik, cegah floating noise A0)
+    if (waterSensorInstalled) {
+      waterValue = analogRead(PIN_WATER_RAW);
+      waterConnected = (waterValue >= 100);
+    } else {
+      waterValue = 0;
+      waterConnected = false;
+    }
 
     // 4. Baca MPU6050
     float ax = 0.0, ay = 0.0, az = 1.0;
@@ -678,7 +705,7 @@ AlertState decideState() {
   // Prioritas tunggal: Jatuh > Tepi Turunan > Genangan Air > Objek Depan
   if (fallConfirmed) return FALL_ALERT;
   if (dropConfirmed) return DROP_ALERT;
-  if (waterValue > WATER_LIMIT) return WATER_ALERT;
+  if (waterConnected && waterValue > WATER_LIMIT) return WATER_ALERT;
   
   if (frontConnected) {
     if (frontCm < FRONT_NEAR_CM)   return OBJECT_NEAR;
@@ -908,9 +935,14 @@ void loop() {
       }
 
       // Sensor Air
-      Serial.print(F("| Air:RIIL("));
-      Serial.print(waterValue);
-      Serial.print(F(")"));
+      Serial.print(F("| Air:"));
+      if (waterConnected) {
+        Serial.print(F("RIIL("));
+        Serial.print(waterValue);
+        Serial.print(F(")"));
+      } else {
+        Serial.print(F("LEPAS"));
+      }
     }
 
     // Status Keputusan & Aktuator Fisik
