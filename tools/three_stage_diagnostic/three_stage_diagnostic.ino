@@ -36,7 +36,8 @@ const byte NUM_DIGITAL = sizeof(DIGITAL_PINS) / sizeof(DIGITAL_PINS[0]);
 enum DiagnosticStage {
   STAGE_1_PIN_CHECK,
   STAGE_2_ACTUATOR_TEST,
-  STAGE_3_COMPONENT_TEST
+  STAGE_3_COMPONENT_TEST,
+  STAGE_4_KATANA_LIVE
 };
 
 #define STAGE_2_BUZZER_TEST STAGE_2_ACTUATOR_TEST
@@ -48,14 +49,23 @@ byte actuatorStep = 255;
 byte actuatorCount = 0;
 byte actuatorCycleCount = 0;
 
+// Variabel untuk Stage 4: Katana Live Simulation
+float stage4DownBaseline = 35.0;
+unsigned long stage4LastCycle = 0;
+bool stage4FrontConn = false;
+bool stage4DownConn = false;
+bool stage4MpuConn = false;
+bool stage4WaterConn = false;
+
 void printMenu() {
   Serial.println(F("\n========================================================"));
-  Serial.println(F("    KATANA 3-STAGE HARDWARE DIAGNOSTIC CONSOLE          "));
+  Serial.println(F("    KATANA 4-STAGE HARDWARE DIAGNOSTIC SUITE            "));
   Serial.println(F("========================================================"));
   Serial.println(F("Perintah Navigasi Tahap:"));
   Serial.println(F("  1  atau PIN      -> TAHAP 1: Cek Kesehatan Semua Pin"));
   Serial.println(F("  2  atau AKTUATOR -> TAHAP 2: Siklus Uji Aktuator (Buzzer D6 & Motor D5)"));
   Serial.println(F("  3  atau SENSOR   -> TAHAP 3: Cek Sensor & Aktuator Mandiri"));
+  Serial.println(F("  4  atau KATANA   -> TAHAP 4: Simulasi Live Katana (Deteksi Rintangan & Turunan)"));
   Serial.println(F("--------------------------------------------------------"));
   Serial.println(F("Perintah Uji Aktuator Cepat:"));
   Serial.println(F("  BUZZER           -> Uji coba suara Buzzer D6 (3x beep)"));
@@ -260,6 +270,10 @@ void testIMUSensor() {
 }
 
 void testWaterSensor() {
+  // Matikan pull-up jika ada sisa mode digital pada A0
+  pinMode(PIN_WATER, INPUT);
+  delayMicroseconds(20);
+
   int raw = analogRead(PIN_WATER);
   float volt = (raw * 5.0) / 1023.0;
   Serial.print(F("[UJI 4: SENSOR AIR A0] DATA DITERIMA: ADC = "));
@@ -267,12 +281,19 @@ void testWaterSensor() {
   Serial.print(F(" (Tegangan: "));
   Serial.print(volt, 2);
   Serial.print(F("V) -> Status: "));
-  if (raw > 650) {
+  
+  if (raw >= 1020) {
+    Serial.println(F("[ADC MAKSIMUM 1023] (Tegangan penuh 5.0V)."));
+    Serial.println(F("   -> CATATAN DIAGNOSTIK:"));
+    Serial.println(F("      1. Jika memakai sensor PCB pasif: Pin sinyal A0 mengambang (floating) / tersambung 5V."));
+    Serial.println(F("      2. Jika memakai modul LM393 (dengan potensiometer): Modul ini bertipe Active-LOW"));
+    Serial.println(F("         (1023 = KERING, saat dicelup air nilai akan drop ke bawah). Coba celupkan air!"));
+  } else if (raw > 650) {
     Serial.println(F("[BASAH / TERKENA AIR] (Waspada Genangan!)"));
   } else if (raw > 100) {
     Serial.println(F("[KERING / UDARA NORMAL] (Siap Pakai)"));
   } else {
-    Serial.println(F("[TERPUTUS / 0V GND]"));
+    Serial.println(F("[TERPUTUS / 0V GND] (Kering atau kabel lepas)"));
   }
 }
 
@@ -348,6 +369,56 @@ void runStage3ComponentTest() {
   Serial.println(F("  STOP          -> Hentikan stream dan matikan semua aktuator\n"));
 }
 
+// =================== TAHAP 4: SIMULASI LIVE KATANA ===================
+void runStage4KatanaLive() {
+  currentStage = STAGE_4_KATANA_LIVE;
+  liveStreamActive = false;
+  pinMode(PIN_BUZZER, OUTPUT);
+  pinMode(PIN_MOTOR, OUTPUT);
+  digitalWrite(PIN_BUZZER, LOW);
+  analogWrite(PIN_MOTOR, 0);
+
+  Serial.println(F("\n================================================================"));
+  Serial.println(F(">>>   TAHAP 4: SIMULASI SISTEM KATANA (NAVIGASI TUNANETRA)   <<<"));
+  Serial.println(F("================================================================"));
+  Serial.println(F("Logika Katana dijalankan langsung dengan sensor fisik yang ada:"));
+  Serial.println(F("  1. RINTANGAN DEPAN (HC-SR04 D2/D3):"));
+  Serial.println(F("     - Jarak < 40 cm : BAHAYA DEKAT! (Buzzer cepat + Getar Kuat)"));
+  Serial.println(F("     - Jarak < 90 cm : PERINGATAN! (Buzzer sedang + Getar Sedang)"));
+  Serial.println(F("     - Jarak < 150 cm: WASPADA JAUH (Buzzer lambat + Getar Halus)"));
+  Serial.println(F("  2. DETEKSI TURUNAN/LUBANG (HC-SR04 D8/D9):"));
+  Serial.println(F("     - Jika jarak ke lantai bertambah drastis (>15cm dari baseline) -> ALARM TURUNAN!"));
+  Serial.println(F("  3. SENSOR IMU & AIR:"));
+  Serial.println(F("     - Otomatis dilewati jika belum terpasang (sistem tetap 100% jalan)."));
+  Serial.println(F("----------------------------------------------------------------"));
+  Serial.print(F("Mengkalibrasi jarak lantai sensor bawah... "));
+  
+  // Kalibrasi baseline lantai cepat (5 sampel)
+  float total = 0.0;
+  byte valid = 0;
+  for (byte i = 0; i < 5; i++) {
+    float d = measureUltrasonic(PIN_DOWN_TRIG, PIN_DOWN_ECHO);
+    if (d > 5.0 && d < 150.0) {
+      total += d;
+      valid++;
+    }
+    delay(40);
+  }
+  if (valid >= 3) {
+    stage4DownBaseline = total / valid;
+    Serial.print(F("OK (Baseline Lantai: "));
+    Serial.print(stage4DownBaseline, 1);
+    Serial.println(F(" cm)"));
+  } else {
+    stage4DownBaseline = 35.0; // Nilai default wajar jika sensor bawah belum dicolok
+    Serial.println(F("Belum terhubung. Menggunakan default 35.0 cm."));
+  }
+
+  Serial.println(F("\n>>> SIMULASI AKTIF! Dekatkan tangan ke sensor depan untuk mencoba feedback."));
+  Serial.println(F("Ketik 'STOP', '1', '2', atau '3' untuk keluar dari simulasi.\n"));
+  stage4LastCycle = millis();
+}
+
 void processCommand(String cmd) {
   cmd.trim();
   cmd.toUpperCase();
@@ -366,6 +437,8 @@ void processCommand(String cmd) {
     digitalWrite(PIN_BUZZER, LOW);
     analogWrite(PIN_MOTOR, 0);
     runStage3ComponentTest();
+  } else if (cmd == "4" || cmd == "KATANA" || cmd == "SIM" || cmd == "LIVE") {
+    runStage4KatanaLive();
   } else if (cmd == "DEPAN") {
     liveStreamActive = false;
     testFrontSensor();
@@ -414,13 +487,14 @@ void processCommand(String cmd) {
     printStreamHeader();
   } else if (cmd == "STOP" || cmd == "OFF" || cmd == "DIAM") {
     liveStreamActive = false;
+    currentStage = STAGE_1_PIN_CHECK;
     digitalWrite(PIN_BUZZER, LOW);
     analogWrite(PIN_MOTOR, 0);
-    Serial.println(F("[STOP] Semua aktivitas, stream, dan aktuator dimatikan."));
+    Serial.println(F("[STOP] Semua aktivitas, simulasi katana, stream, dan aktuator dimatikan."));
   } else if (cmd == "MENU" || cmd == "HELP" || cmd == "?") {
     printMenu();
   } else {
-    Serial.println(F("Perintah tidak dikenal. Ketik '1', '2', '3', 'MOTOR', 'BUZZER', 'DUAL', 'DEPAN', 'BAWAH', 'IMU', 'AIR'."));
+    Serial.println(F("Perintah tidak dikenal. Ketik '1', '2', '3', '4', 'MOTOR', 'BUZZER', 'DUAL', 'DEPAN', 'BAWAH', 'IMU', 'AIR'."));
   }
 }
 
@@ -584,6 +658,67 @@ void loop() {
         else Serial.print(F("[KERING]"));
 
         Serial.println();
+      }
+    }
+  }
+
+  // 5. Logika Tahap 4: Simulasi Sistem Katana Penuh (Non-blocking Haptic & Audio Feedback)
+  else if (currentStage == STAGE_4_KATANA_LIVE) {
+    if (millis() - stage4LastCycle >= 120) {
+      stage4LastCycle = millis();
+
+      // 1. Baca Jarak Depan
+      float dFront = measureUltrasonic(PIN_FRONT_TRIG, PIN_FRONT_ECHO);
+      bool frontConn = (dFront >= 0);
+
+      // 2. Baca Jarak Bawah
+      float dDown = measureUltrasonic(PIN_DOWN_TRIG, PIN_DOWN_ECHO);
+      bool downConn = (dDown >= 0);
+      float dropDelta = (downConn && dDown > stage4DownBaseline) ? (dDown - stage4DownBaseline) : 0;
+
+      // Evaluasi Umpan Balik:
+      // Prioritas 1: Bahaya Turunan / Lubang (> 15cm lebih dalam dari lantai)
+      if (downConn && dropDelta > 15.0) {
+        // Alarm bahaya: Getar kontinu + Bip cepat
+        analogWrite(PIN_MOTOR, 240);
+        bool b = ((millis() / 120) % 2 == 0);
+        digitalWrite(PIN_BUZZER, b ? HIGH : LOW);
+        Serial.print(F("[KATANA LIVE] !!! WASPADA LUBANG / TURUNAN !!! Delta: +"));
+        Serial.print(dropDelta, 1);
+        Serial.println(F(" cm"));
+      }
+      // Prioritas 2: Rintangan Depan Dekat (< 40cm)
+      else if (frontConn && dFront < 40.0) {
+        analogWrite(PIN_MOTOR, 255);
+        bool b = ((millis() / 100) % 2 == 0);
+        digitalWrite(PIN_BUZZER, b ? HIGH : LOW);
+        Serial.print(F("[KATANA LIVE] BAHAYA DEKAT! Rintangan: "));
+        Serial.print(dFront, 1);
+        Serial.println(F(" cm (Motor MAKSIMAL + Beep Cepat)"));
+      }
+      // Prioritas 3: Rintangan Sedang (40cm - 90cm)
+      else if (frontConn && dFront < 90.0) {
+        bool v = ((millis() / 200) % 2 == 0);
+        analogWrite(PIN_MOTOR, v ? 190 : 0);
+        bool b = ((millis() / 250) % 2 == 0);
+        digitalWrite(PIN_BUZZER, b ? HIGH : LOW);
+        Serial.print(F("[KATANA LIVE] PERINGATAN! Rintangan: "));
+        Serial.print(dFront, 1);
+        Serial.println(F(" cm (Getar Sedang + Beep Sedang)"));
+      }
+      // Prioritas 4: Rintangan Jauh (90cm - 150cm)
+      else if (frontConn && dFront < 150.0) {
+        bool v = ((millis() / 400) % 2 == 0);
+        analogWrite(PIN_MOTOR, v ? 130 : 0);
+        digitalWrite(PIN_BUZZER, LOW); // Hening atau getar halus saja
+        Serial.print(F("[KATANA LIVE] Waspada Jauh: Rintangan "));
+        Serial.print(dFront, 1);
+        Serial.println(F(" cm (Getar Halus)"));
+      }
+      // Kondisi Aman (Jalan Bersih / Sensor Lepas)
+      else {
+        analogWrite(PIN_MOTOR, 0);
+        digitalWrite(PIN_BUZZER, LOW);
       }
     }
   }
