@@ -164,6 +164,8 @@ const translations = {
     clearRec: "Reset",
     recordedCount: "data tersimpan",
     recDuration: "Durasi:",
+    restoreBackup: "Pulihkan Cadangan",
+    backupFound: "Cadangan data sesi sebelumnya terdeteksi",
     
     // Simulation Panel
     simTitle: "Panel Simulasi Hardware (Wokwi Style)",
@@ -317,6 +319,8 @@ const translations = {
     clearRec: "Reset",
     recordedCount: "records saved",
     recDuration: "Duration:",
+    restoreBackup: "Restore Backup",
+    backupFound: "Previous session backup detected",
     
     // Simulation Panel
     simTitle: "Hardware Simulation Panel (Wokwi Style)",
@@ -452,6 +456,8 @@ export default function KatanaDashboard() {
   }>>([]);
   const isRecordingRef = useRef(false);
   const dataRef = useRef<TelemetryData>(initialTelemetryState);
+  const [hasBackup, setHasBackup] = useState(false);
+  const [backupCount, setBackupCount] = useState(0);
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<"monitor" | "serial_flash">("monitor");
@@ -706,6 +712,14 @@ export default function KatanaDashboard() {
   const stopRecording = () => {
     setIsRecording(false);
     isRecordingRef.current = false;
+    try {
+      if (recordedDataRef.current.length > 0) {
+        localStorage.setItem(
+          "katana_telemetry_backup",
+          JSON.stringify(recordedDataRef.current.slice(-5000))
+        );
+      }
+    } catch (e) {}
     addLog(`[DATA-LOGGER] Perekaman dihentikan. Total ${recordedDataRef.current.length} baris data telemetri tersimpan.`);
   };
 
@@ -713,8 +727,72 @@ export default function KatanaDashboard() {
     recordedDataRef.current = [];
     setRecordCount(0);
     setRecordDuration(0);
+    setHasBackup(false);
+    setBackupCount(0);
+    try {
+      localStorage.removeItem("katana_telemetry_backup");
+    } catch (e) {}
     addLog("[DATA-LOGGER] Buffer data rekaman dikosongkan.");
   };
+
+  const restoreBackup = () => {
+    try {
+      const raw = localStorage.getItem("katana_telemetry_backup");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          recordedDataRef.current = parsed;
+          setRecordCount(parsed.length);
+          setHasBackup(false);
+          addLog(`[DATA-LOGGER] Berhasil memulihkan ${parsed.length} baris data telemetri dari cadangan browser.`);
+        }
+      }
+    } catch (e) {
+      console.error("Gagal memulihkan cadangan:", e);
+    }
+  };
+
+  // Protection against accidental page close/refresh when recording or having unsaved data
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isRecording || recordCount > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isRecording, recordCount]);
+
+  // Check existing local storage backup on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("katana_telemetry_backup");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setHasBackup(true);
+          setBackupCount(parsed.length);
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  // Periodic auto-backup to local storage every 5 seconds while recording
+  useEffect(() => {
+    if (!isRecording) return;
+    const interval = setInterval(() => {
+      try {
+        if (recordedDataRef.current.length > 0) {
+          localStorage.setItem(
+            "katana_telemetry_backup",
+            JSON.stringify(recordedDataRef.current.slice(-5000))
+          );
+        }
+      } catch (e) {}
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isRecording]);
 
   const downloadCsv = () => {
     if (recordedDataRef.current.length === 0) {
@@ -752,7 +830,8 @@ export default function KatanaDashboard() {
     }
 
     const csvString = csvRows.join("\r\n");
-    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    // UTF-8 BOM (\uFEFF) ensures Microsoft Excel (Windows & Mac) reads character sets and delimiters cleanly
+    const blob = new Blob(["\uFEFF" + csvString], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
 
     const now = new Date();
@@ -2392,6 +2471,21 @@ export default function KatanaDashboard() {
                     </button>
                   )}
                 </div>
+
+                {hasBackup && recordCount === 0 && (
+                  <div className="flex items-center justify-between p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs">
+                    <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                      {t.backupFound} ({backupCount} data)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={restoreBackup}
+                      className="px-2 py-0.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded cursor-pointer transition-all"
+                    >
+                      {t.restoreBackup}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Live Serial Console */}
@@ -2835,6 +2929,16 @@ export default function KatanaDashboard() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {hasBackup && recordCount === 0 && (
+                    <button
+                      type="button"
+                      onClick={restoreBackup}
+                      className="h-7 px-2.5 flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs"
+                    >
+                      <span>{t.restoreBackup}</span>
+                      <span className="text-[10px] opacity-80">({backupCount})</span>
+                    </button>
+                  )}
                   {!isRecording ? (
                     <button
                       type="button"
