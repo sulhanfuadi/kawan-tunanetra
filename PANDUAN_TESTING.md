@@ -126,14 +126,96 @@ Semua pengujian dapat dilakukan menggunakan satu sketch diagnostik terpadu yang 
 
 ---
 
-## 🎯 Siap Upload Firmware Utama (`katana.ino`)
+---
 
-Jika Tahap 2 dan Tahap 3 (khususnya sensor ultrasonik depan & aktuator) sudah bekerja dengan baik:
+## ⚡ PENGUJIAN LANGSUNG DENGAN `katana.ino` (FIRMWARE UTAMA)
 
-1. Buka file project utama:  
-   📁 `katana/katana.ino`
-2. Langsung klik tombol **Upload**.
-3. **Selesai!** Katana sudah siap digunakan untuk mendampingi tunanetra.
+Jika Anda ingin langsung mengunggah dan menguji firmware produksi [`katana/katana.ino`](katana/katana.ino), file tersebut **sudah dilengkapi konsol diagnostik & perintah serial interaktif bawaan**!
 
-> **💡 Tips Penting**:
-> Jika sensor IMU MPU6050 atau sensor air belum siap/belum disolder, Anda **tetap bisa langsung mengunggah `katana.ino`**. Sistem sudah dirancang tahan kesalahan (*fault-tolerant*) dan akan tetap bekerja 100% menggunakan sensor ultrasonik depan, sensor bawah, motor vibrator, dan buzzer!
+### 1. Cara Upload Firmware Utama:
+1. Di Arduino IDE, buka file `katana/katana.ino`.
+2. Klik tombol **Upload**.
+3. Buka **Serial Monitor** pada kecepatan **`115200 baud`**.
+4. Saat pertama kali boot, Arduino akan otomatis menjalankan:
+   * **Inisialisasi Pin & Sensor**
+   * **Kalibrasi Baseline Lantai**
+   * **Self-Test Singkat**: Motor getar bergetar sebentar (400ms) lalu buzzer berbunyi 2x beep.
+
+---
+
+### 2. Perintah Serial Interaktif Langsung di `katana.ino`:
+
+Ketik perintah berikut di baris input Serial Monitor lalu tekan **Enter**:
+
+| Perintah | Fungsi / Efek | Hasil yang Diharapkan |
+|---|---|---|
+| **`DIAG`** atau **`CHECK`** | Diagnosa status koneksi 4 sensor secara serentak | Menampilkan status koneksi & jarak terkini tiap sensor |
+| **`TEST FRONT`** | Cek sensor depan HC-SR04 (D2/D3) | Terbaca jarak cm (+ deteksi auto-swap jika pin terbalik) |
+| **`TEST DOWN`** | Cek sensor bawah HC-SR04 (D8/D9) | Terbaca jarak lantai (+ deteksi auto-swap) |
+| **`TEST IMU`** | Cek sensor kemiringan MPU6050 | Menampilkan alamat I2C `0x68` dan nilai akselerometer |
+| **`TEST WATER`** | Cek sensor air analog di Pin A0 | Menampilkan status Kering / Basah |
+| **`TEST MOTOR`** | Uji getaran motor D5 selama 1.5 detik | Motor di pegangan bergetar nyata |
+| **`TEST BUZZER`** | Uji bunyi bip buzzer D6 selama 1.5 detik | Buzzer berbunyi pola beep |
+| **`TEST OUTPUT`** | Self-test motor getar dan buzzer berurutan | Motor getar berdenyut diikuti bunyi buzzer |
+| **`STOP`** | Matikan semua aktuator yang sedang aktif | Motor dan buzzer langsung hening |
+
+---
+
+### 3. Skenario Uji Fisik Langsung di Lapangan:
+
+Lakukan 3 pengujian fisik berikut dengan tangan Anda:
+
+#### Skenario A: Uji Rintangan Depan (Sensor D2/D3)
+1. Dekatkan telapak tangan Anda di depan sensor HC-SR04 depan:
+   * Jarak **< 30 cm (`OBJEK_DEKAT`)**: Motor getar bergetar kontinu tanpa jeda!
+   * Jarak **30 - 60 cm (`OBJEK_SEDANG`)**: Motor getar berdenyut cepat (cadence 120ms).
+   * Jarak **60 - 100 cm (`OBJEK_WASPADA`)**: Motor getar berdenyut santai (cadence 350ms).
+   * Jarak **> 100 cm (`NORMAL`)**: Motor getar langsung berhenti (diam).
+
+#### Skenario B: Uji Tepi Turunan / Lubang Jalan (Sensor D8/D9)
+1. Letakkan alat di atas meja datar menghadap ke bawah (jarak wajar 20-35 cm).
+2. Geser ujung tongkat keluar bibir meja (sehingga sensor bawah melihat lantai bawah yang lebih dalam):
+   * Status berubah menjadi **`TEPI_TURUNAN`**.
+   * Motor getar menghasilkan **3 denyut taktil berulang** (*3 high-intensity haptic pulses*) untuk memperingatkan pengguna!
+
+#### Skenario C: Skenario Darurat Morse SOS (Tongkat Terjatuh)
+1. Jika modul IMU MPU6050 terpasang, baringkan alat mendatar di lantai (> 60°) selama 2 detik:
+   * Status berubah menjadi **`TONGKAT_JATUH`**.
+   * Buzzer aktif membunyikan kode internasional **SOS Morse (`... --- ...`)** secara periodik agar orang di sekitar dapat menolong tunanetra!
+2. *(Alternatif simulasi jika tanpa MPU)*: Ketik **`FALL`** di Serial Monitor untuk menguji nada SOS Morse. Ketik **`NORMAL`** untuk mereset kembali.
+
+---
+
+## 🔍 Audit & Verifikasi Logika Firmware (`katana.ino`)
+
+Hasil audit arsitektur logika dan pohon keputusan sistem:
+
+```
+                  [ updateInputs() ]
+                          |
+             [ Sensor Presence Validator ]
+              /                         \
+      (Semua Lepas)                (Minimal 1 Aktif)
+            |                              |
+      [ STATE: STANDBY ]            [ decideState() ]
+       Motor: MATI                  Tangga Prioritas Bahaya:
+       Buzzer: MATI                 1. FALL_ALERT (Tongkat Jatuh: Morse SOS)
+                                    2. DROP_ALERT (Turunan / Lubang: 3 Denyut Taktil)
+                                    3. WATER_ALERT (Genangan Air: 2 Denyut Panjang)
+                                    4. OBJECT_NEAR (< 30cm: Getar Penuh Kontinu)
+                                    5. OBJECT_MEDIUM (30-60cm: Getar Cepat)
+                                    6. OBJECT_LOW (60-100cm: Getar Santai)
+                                    7. NORMAL (Aman: Motor & Buzzer Hening)
+```
+
+### ✅ Poin Kunci Keamanan & Kenyamanan yang Terverifikasi:
+1. **Sensory Conflict Prevention (Bebas Polusi Suara)**:
+   * Buzzer **HANYA** berbunyi saat situasi kritis darurat (**Tongkat Terjatuh / User Pingsan** via sinyal SOS Morse).
+   * Navigasi berjalan sehari-hari (rintangan depan, turunan, jalan basah) disalurkan melalui **Getaran Taktil di Pegangan**, sehingga tunanetra tidak mengalami kelelahan auditori (*auditory fatigue*) dan pendengarannya tetap bebas mendengar suara lingkungan sekitar.
+2. **Auto-Pin Swapping (Tahan Salah Colok)**:
+   * Jika kabel `TRIG` dan `ECHO` tertukar secara fisik di breadboard (misal D2 dan D3, atau D8 dan D9), firmware otomatis mendeteksi dan menukar peran pin melalui software secara live.
+3. **Ghost Ground-Drop Prevention**:
+   * Jika sensor bawah belum terpasang, sistem tidak akan memicu alarm turunan palsu. Alarm turunan hanya dievaluasi jika `downConnected == true` dan tongkat tidak sedang dimiringkan ekstrem.
+4. **Floating ADC Noise Shielding**:
+   * Pin A0 dinonaktifkan secara default (`waterSensorInstalled = false;`) sehingga muatan statis pin analog tidak memicu alarm air palsu. Cukup ketik `WATER ON` bila modul air fisik sudah siap.
+
