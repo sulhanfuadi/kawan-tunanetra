@@ -778,21 +778,6 @@ export default function KatanaDashboard() {
     } catch (e) {}
   }, []);
 
-  // Periodic auto-backup to local storage every 5 seconds while recording
-  useEffect(() => {
-    if (!isRecording) return;
-    const interval = setInterval(() => {
-      try {
-        if (recordedDataRef.current.length > 0) {
-          localStorage.setItem(
-            "katana_telemetry_backup",
-            JSON.stringify(recordedDataRef.current.slice(-5000))
-          );
-        }
-      } catch (e) {}
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [isRecording]);
 
   const downloadCsv = () => {
     if (recordedDataRef.current.length === 0) {
@@ -2473,14 +2458,14 @@ export default function KatanaDashboard() {
                 </div>
 
                 {hasBackup && recordCount === 0 && (
-                  <div className="flex items-center justify-between p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs">
-                    <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                  <div className="flex items-center justify-between p-2 bg-zinc-200/60 dark:bg-zinc-800/60 border border-zinc-300 dark:border-zinc-700 rounded-lg text-xs">
+                    <span className="text-[11px] text-zinc-700 dark:text-zinc-300 font-mono">
                       {t.backupFound} ({backupCount} data)
                     </span>
                     <button
                       type="button"
                       onClick={restoreBackup}
-                      className="px-2 py-0.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded cursor-pointer transition-all"
+                      className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-950 font-bold text-[10px] rounded cursor-pointer transition-all"
                     >
                       {t.restoreBackup}
                     </button>
@@ -2933,10 +2918,10 @@ export default function KatanaDashboard() {
                     <button
                       type="button"
                       onClick={restoreBackup}
-                      className="h-7 px-2.5 flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs"
+                      className="h-7 px-2.5 flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs border border-zinc-700"
                     >
                       <span>{t.restoreBackup}</span>
-                      <span className="text-[10px] opacity-80">({backupCount})</span>
+                      <span className="text-[10px] text-zinc-400">({backupCount})</span>
                     </button>
                   )}
                   {!isRecording ? (
