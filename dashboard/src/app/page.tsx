@@ -225,7 +225,7 @@ const translations = {
     meterTiltLimit: "Batas >60° (SOS)",
     meterTiltFlat: "90° Datar",
     meterWaterDry: "0 Kering",
-    meterWaterLimit: "Batas >300",
+    meterWaterLimit: "Batas >400",
     meterWaterWet: "1023 Basah",
     unitDegrees: "derajat",
     unitDelta: "cm delta",
@@ -387,7 +387,7 @@ const translations = {
     meterTiltLimit: "Limit >60° (SOS)",
     meterTiltFlat: "90° Flat",
     meterWaterDry: "0 Dry",
-    meterWaterLimit: "Limit >300",
+    meterWaterLimit: "Limit >400",
     meterWaterWet: "1023 Wet",
     unitDegrees: "degrees",
     unitDelta: "cm delta",
@@ -1557,7 +1557,7 @@ export default function KatanaDashboard() {
     } else if (demoDown > 15) {
       st = "TEPI_TURUNAN";
       mot = "ON";
-    } else if (demoWater > 300) {
+    } else if (demoWater > 400) {
       st = "PERMUKAAN_BASAH";
       mot = "ON";
     } else if (demoFront < 30) {
