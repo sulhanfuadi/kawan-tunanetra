@@ -108,8 +108,37 @@ bool writeMPU(byte reg, byte value) {
   return (err == 0);
 }
 
+// Prosedur pembersihan bus I2C ATmega328P jika SDA ditahan LOW oleh slave yang macet
+void recoverI2CBus() {
+  pinMode(A4, INPUT_PULLUP); // SDA
+  pinMode(A5, OUTPUT);       // SCL
+  
+  // Kirim 9 clock pulse di SCL untuk release SDA jika slave sedang stuck
+  for (byte i = 0; i < 9; i++) {
+    digitalWrite(A5, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(A5, LOW);
+    delayMicroseconds(10);
+  }
+  
+  // Generate STOP condition
+  pinMode(A4, OUTPUT);
+  digitalWrite(A4, LOW);
+  delayMicroseconds(10);
+  digitalWrite(A5, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(A4, HIGH);
+  delayMicroseconds(10);
+  
+  pinMode(A4, INPUT);
+  pinMode(A5, INPUT);
+  Wire.begin();
+  Wire.setClock(100000);
+}
+
 byte scanI2C() {
   Wire.begin();
+  Wire.setClock(100000);
   #if defined(WIRE_HAS_TIMEOUT)
     Wire.setWireTimeout(3000, true);
   #endif
@@ -127,6 +156,19 @@ byte scanI2C() {
     Wire.beginTransmission(a);
     if (Wire.endTransmission() == 0) return a;
   }
+
+  // Jika belum terdeteksi, coba jalankan bus recovery untuk melepas slave yang terkunci
+  recoverI2CBus();
+  Wire.beginTransmission(0x68);
+  if (Wire.endTransmission() == 0) return 0x68;
+  Wire.beginTransmission(0x69);
+  if (Wire.endTransmission() == 0) return 0x69;
+
+  for (byte a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) return a;
+  }
+
   return 0; // Tidak ada satupun perangkat I2C merespons
 }
 
@@ -137,7 +179,8 @@ bool setupMPU() {
   }
   mpuAddr = detected;
 
-  bool okWake  = writeMPU(0x6B, 0x00); // Wake MPU6050
+  bool okWake  = writeMPU(0x6B, 0x00); // Wake MPU6050 dari sleep mode
+  delay(15);
   bool okAccel = writeMPU(0x1C, 0x00); // Accelerometer range +/-2g
   return (okWake && okAccel);
 }
@@ -145,7 +188,12 @@ bool setupMPU() {
 bool readMPUAccel(float &ax, float &ay, float &az) {
   Wire.beginTransmission(mpuAddr);
   Wire.write(0x3B);
-  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.endTransmission(false) != 0) {
+    // Fallback: Beberapa modul klon menolak repeated start, coba dengan true (STOP condition)
+    Wire.beginTransmission(mpuAddr);
+    Wire.write(0x3B);
+    if (Wire.endTransmission(true) != 0) return false;
+  }
   if (Wire.requestFrom((int)mpuAddr, 6, true) != 6) return false;
 
   int16_t rawX = (Wire.read() << 8) | Wire.read();
@@ -397,6 +445,7 @@ void processSerialCommand(String cmd) {
     byte i2cAddr = scanI2C();
     if (i2cAddr != 0) {
       mpuAddr = i2cAddr;
+      setupMPU(); // Bangunkan dari mode sleep
       float ax, ay, az;
       if (readMPUAccel(ax, ay, az)) {
         Serial.print(F("TERHUBUNG pada 0x")); Serial.print(i2cAddr, HEX);
@@ -405,7 +454,7 @@ void processSerialCommand(String cmd) {
         Serial.print(F("ALAMAT 0x")); Serial.print(i2cAddr, HEX); Serial.println(F(" MERESPONS TAPI GAGAL BACA DATA"));
       }
     } else {
-      Serial.println(F("LEPAS (Tidak ada perangkat I2C). Cek: 1. LED modul nyala? 2. SDA ke A4, SCL ke A5"));
+      Serial.println(F("LEPAS (Tidak ada perangkat I2C). Cek: 1. Pin header sudah disolder? 2. SDA ke A4, SCL ke A5 3. VCC ke 5V"));
     }
 
     // Test 4: Sensor Air
@@ -449,18 +498,31 @@ void processSerialCommand(String cmd) {
   }
 
   if (upper == "TEST IMU" || upper == "TEST:IMU" || upper == "TEST MPU") {
-    Serial.print(F("[TEST MPU6050] "));
+    Serial.println(F("[TEST MPU6050] Memulai diagnosa bus I2C (A4/A5)..."));
     byte addr = scanI2C();
     if (addr != 0) {
       mpuAddr = addr;
+      setupMPU();
       float ax, ay, az;
-      readMPUAccel(ax, ay, az);
-      Serial.print(F("TERHUBUNG di 0x")); Serial.print(addr, HEX);
-      Serial.print(F(" -> Accel X=")); Serial.print(ax, 2);
-      Serial.print(F(" Y=")); Serial.print(ay, 2);
-      Serial.print(F(" Z=")); Serial.println(az, 2);
+      if (readMPUAccel(ax, ay, az)) {
+        float mag = sqrt(ax * ax + ay * ay + az * az);
+        float tilt = (mag > 0.05) ? acos(constrain(fabs(az) / mag, 0.0f, 1.0f)) * 180.0 / PI : 0.0;
+        Serial.print(F("[TEST MPU6050] TERHUBUNG di 0x")); Serial.print(addr, HEX);
+        Serial.print(F(" -> Accel X=")); Serial.print(ax, 2);
+        Serial.print(F(" Y=")); Serial.print(ay, 2);
+        Serial.print(F(" Z=")); Serial.print(az, 2);
+        Serial.print(F(" | Sudut Kemiringan: ")); Serial.print(tilt, 1); Serial.println(F("°"));
+      } else {
+        Serial.print(F("[TEST MPU6050] ALAMAT 0x")); Serial.print(addr, HEX);
+        Serial.println(F(" MERESPONS TAPI GAGAL BACA REGISTER DATA"));
+      }
     } else {
-      Serial.println(F("LEPAS -> Jalur I2C tidak merespons! Pastikan LED modul menyala, SDA ke A4, SCL ke A5"));
+      Serial.println(F("[TEST MPU6050] LEPAS -> Bus I2C tidak merespons!"));
+      Serial.println(F("  Checklist Solusi Cepat:"));
+      Serial.println(F("  1. Pastikan pin header GY-521 SUDAH DISOLDER (bukan hanya ditusuk ke PCB)."));
+      Serial.println(F("  2. Pastikan SDA -> A4 dan SCL -> A5 (tidak tertukar)."));
+      Serial.println(F("  3. Pastikan VCC modul ke pin 5V Nano (jangan ke 3.3V)."));
+      Serial.println(F("  4. Periksa apakah lampu LED merah/hijau di papan modul GY-521 menyala terang."));
     }
     return;
   }
@@ -657,19 +719,29 @@ void updateInputs() {
       waterConnected = false;
     }
 
-    // 4. Baca MPU6050
+    // 4. Baca MPU6050 dengan auto re-detection jika sempat lepas
     float ax = 0.0, ay = 0.0, az = 1.0;
-    if (readMPUAccel(ax, ay, az)) {
-      mpuConnected = true;
-      float magnitude = sqrt(ax * ax + ay * ay + az * az);
-      if (magnitude > 0.05) {
-        float ratio = fabs(az) / magnitude;
-        ratio = constrain(ratio, 0.0f, 1.0f);
-        tiltDeg = acos(ratio) * 180.0 / PI;
+    if (mpuConnected) {
+      if (readMPUAccel(ax, ay, az)) {
+        float magnitude = sqrt(ax * ax + ay * ay + az * az);
+        if (magnitude > 0.05) {
+          float ratio = fabs(az) / magnitude;
+          ratio = constrain(ratio, 0.0f, 1.0f);
+          tiltDeg = acos(ratio) * 180.0 / PI;
+        }
+      } else {
+        mpuConnected = false;
+        tiltDeg = -1.0;
       }
     } else {
-      mpuConnected = false;
-      tiltDeg = -1.0;
+      // Re-deteksi & inisialisasi ulang otomatis tiap 1.5 detik jika sensor baru dipasang/dicolok
+      static unsigned long lastMpuRetryMs = 0;
+      if (now - lastMpuRetryMs >= 1500) {
+        lastMpuRetryMs = now;
+        if (setupMPU()) {
+          mpuConnected = true;
+        }
+      }
     }
   }
 
