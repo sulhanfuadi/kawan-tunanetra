@@ -39,6 +39,9 @@ const float FALL_TILT_LIMIT_DEG = 60.0;
 const unsigned long DROP_DEBOUNCE_MS = 200;
 const unsigned long FALL_CONFIRM_MS  = 2000;
 
+// Volume Buzzer PWM (0 - 255): Default 35 (~15% duty cycle, suara lembut dan tidak memekakkan telinga)
+byte buzzerVolumePwm = 35;
+
 enum AlertState {
   STANDBY,        // Sensor utama belum terpasang
   NORMAL,         // Semua sensor terpasang dan dalam batas aman
@@ -345,6 +348,7 @@ void processSerialCommand(String cmd) {
     Serial.println(F("  MOTOR ON/OFF  -> Nyalakan / matikan motor getar terus-menerus"));
     Serial.println(F("  TEST BUZZER   -> Bunyikan buzzer pola beep selama 1.5 detik (Pin D6)"));
     Serial.println(F("  BUZZER ON/OFF -> Nyalakan / matikan buzzer terus-menerus"));
+    Serial.println(F("  VOL <5-255>   -> Atur volume buzzer PWM (misal: VOL 35 lembut, VOL 120 sedang)"));
     Serial.println(F("  TEST OUTPUT   -> Self-test motor getar & buzzer bersamaan"));
     Serial.println(F("  STOP          -> Matikan semua uji aktuator manual"));
     Serial.println(F(""));
@@ -654,6 +658,13 @@ void processSerialCommand(String cmd) {
       simWaterVal = (int)val;
       Serial.print(F("[SIM] Sensor Air diset ke: "));
       Serial.println(simWaterVal);
+    } else if (key == "VOL" || key == "VOLUME") {
+      buzzerVolumePwm = (byte)constrain((int)val, 5, 255);
+      Serial.print(F("[AUDIO] Volume Buzzer diset ke PWM: "));
+      Serial.print(buzzerVolumePwm);
+      Serial.print(F("/255 (~"));
+      Serial.print((buzzerVolumePwm * 100) / 255);
+      Serial.println(F("%)"));
     }
   }
 }
@@ -836,7 +847,12 @@ void driveBuzzer(bool on) {
   if (on) tone(PIN_BUZZER, 1000);
   else noTone(PIN_BUZZER);
 #else
-  digitalWrite(PIN_BUZZER, on ? HIGH : LOW);
+  // Gunakan PWM (analogWrite) untuk mengatur volume suara buzzer secara presisi
+  if (on) {
+    analogWrite(PIN_BUZZER, buzzerVolumePwm > 0 ? buzzerVolumePwm : 35);
+  } else {
+    analogWrite(PIN_BUZZER, 0);
+  }
 #endif
 }
 

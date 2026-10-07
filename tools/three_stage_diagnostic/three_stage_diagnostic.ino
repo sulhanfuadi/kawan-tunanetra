@@ -358,15 +358,15 @@ void testMotorActuator() {
 }
 
 void testBuzzerActuator() {
-  Serial.println(F("[UJI 6: BUZZER D6] Membunyikan buzzer pola 3x beep (Pin D6)..."));
+  Serial.println(F("[UJI 6: BUZZER D6] Membunyikan buzzer pola 3x beep lembut (Pin D6 PWM 35)..."));
   pinMode(PIN_BUZZER, OUTPUT);
   for (byte b = 0; b < 3; b++) {
-    digitalWrite(PIN_BUZZER, HIGH);
+    analogWrite(PIN_BUZZER, 35);
     delay(180);
-    digitalWrite(PIN_BUZZER, LOW);
+    analogWrite(PIN_BUZZER, 0);
     delay(120);
   }
-  Serial.println(F("[UJI 6: BUZZER D6] Selesai. Apakah Anda mendengar suara beep dari buzzer?"));
+  Serial.println(F("[UJI 6: BUZZER D6] Selesai. Apakah Anda mendengar suara beep lembut dari buzzer?"));
 }
 
 void testDualActuators() {
