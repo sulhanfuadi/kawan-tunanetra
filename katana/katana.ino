@@ -814,13 +814,21 @@ bool vibrationPattern(AlertState state, unsigned long now) {
 }
 
 bool buzzerPattern(AlertState state, unsigned long now) {
-  if (state != FALL_ALERT) return false;
+  // 1. Alarm SOS Morse jika tongkat jatuh (Prioritas 1)
+  if (state == FALL_ALERT) {
+    // Pola SOS Morse (... --- ...)
+    unsigned long p = now % 3600UL;
+    return pulseWindow(p, 0, 140) || pulseWindow(p, 240, 380) || pulseWindow(p, 480, 620) ||
+           pulseWindow(p, 820, 1220) || pulseWindow(p, 1340, 1740) || pulseWindow(p, 1860, 2260) ||
+           pulseWindow(p, 2460, 2600) || pulseWindow(p, 2700, 2840) || pulseWindow(p, 2940, 3080);
+  }
 
-  // Pola SOS Morse (... --- ...)
-  unsigned long p = now % 3600UL;
-  return pulseWindow(p, 0, 140) || pulseWindow(p, 240, 380) || pulseWindow(p, 480, 620) ||
-         pulseWindow(p, 820, 1220) || pulseWindow(p, 1340, 1740) || pulseWindow(p, 1860, 2260) ||
-         pulseWindow(p, 2460, 2600) || pulseWindow(p, 2700, 2840) || pulseWindow(p, 2940, 3080);
+  // 2. Alarm Bip Cepat Audio jika rintangan depan sangat dekat (< 30cm / Kasus 4)
+  if (state == OBJECT_NEAR) {
+    return ((now / 100UL) % 2 == 0); // Beep staccato cepat 100ms ON / 100ms OFF
+  }
+
+  return false;
 }
 
 void driveBuzzer(bool on) {
@@ -1023,7 +1031,13 @@ void loop() {
     Serial.print(F(" | Motor: "));
     Serial.print(vibrationOn ? F("ON") : F("OFF"));
     Serial.print(F(" | Buzzer: "));
-    Serial.println(activeState == FALL_ALERT ? F("SOS") : F("DIAM"));
+    if (activeState == FALL_ALERT) {
+      Serial.println(F("SOS"));
+    } else if (activeState == OBJECT_NEAR) {
+      Serial.println(F("BEEP"));
+    } else {
+      Serial.println(F("DIAM"));
+    }
   }
   delay(20);
 }

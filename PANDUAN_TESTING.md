@@ -89,8 +89,8 @@ Kondisi di mana objek atau dinding berada sangat dekat dan berisiko langsung men
 - **Simulasi Serial / Dashboard**: Ketik `NEAR` atau `FRONT 15` lalu Enter.
 - **Respon Aktuator**:
   - **Motor (D5)**: [AKTIF] Getaran kontinu frekuensi tinggi tanpa henti (PWM 240 pada pegangan).
-  - **Buzzer (D6)**: [MATI] Tetap hening.
-- **Status Telemetri**: `OBJEK_DEKAT` (Status Code: `OBJECT_NEAR`).
+  - **Buzzer (D6)**: [AKTIF] Bunyi BEEP staccato cepat (100ms ON / 100ms OFF) sebagai alarm audio bahaya tabrakan!
+- **Status Telemetri**: `OBJEK_DEKAT` (Status Code: `OBJECT_NEAR`, Buzzer: `BEEP`).
 
 ---
 

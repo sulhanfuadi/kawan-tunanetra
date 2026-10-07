@@ -1563,6 +1563,7 @@ export default function KatanaDashboard() {
     } else if (demoFront < 30) {
       st = "OBJEK_DEKAT";
       mot = "ON";
+      buz = "BEEP";
     } else if (demoFront < 60) {
       st = "OBJEK_SEDANG";
       mot = "ON";
