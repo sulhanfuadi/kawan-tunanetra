@@ -24,16 +24,16 @@ const byte PIN_FRONT_TRIG = 3;
 const byte PIN_FALL_TEST = 4;     // Wokwi-only test button
 const byte PIN_VIBRATION = 5;     // Real: PWM motor module SIG
 const byte PIN_BUZZER = 6;        // Real: active buzzer through BC547
-const byte PIN_DOWN_ECHO = 10;
-const byte PIN_DOWN_TRIG = 11;
+const byte PIN_DOWN_ECHO = 8;
+const byte PIN_DOWN_TRIG = 9;
 const byte PIN_WATER_SIM = A0;    // Real: water sensor AO
 
 const byte MPU_ADDR = 0x68;
 
 // Initial thresholds for controlled prototype testing
 const int FRONT_LOW_CM = 100;
-const int FRONT_MEDIUM_CM = 50;
-const int FRONT_NEAR_CM = 20;
+const int FRONT_MEDIUM_CM = 60;
+const int FRONT_NEAR_CM = 30;
 const int DROP_DELTA_LIMIT_CM = 15;
 const int WATER_LIMIT = 650;
 const float DROP_TILT_MAX_DEG = 45.0;
@@ -289,7 +289,7 @@ bool vibrationPattern(AlertState state, unsigned long now) {
     case OBJECT_MEDIUM:
       return (now % 400UL) < 120UL;
     case OBJECT_NEAR:
-      return (now % 220UL) < 110UL;
+      return true;
     case WATER_ALERT: {
       unsigned long p = now % 1900UL;
       return pulseWindow(p, 0, 500) || pulseWindow(p, 750, 1250);
@@ -363,7 +363,7 @@ void setup() {
   calibrateDownBaseline();
   selfTest();
   Serial.println(F("KATANA Wokwi ready"));
-  Serial.println(F("HC depan D2/D3, HC bawah D10/D11, A0=air, D4=tes jatuh"));
+  Serial.println(F("HC depan D2/D3, HC bawah D8/D9, A0=air, D4=tes jatuh"));
 }
 
 void loop() {

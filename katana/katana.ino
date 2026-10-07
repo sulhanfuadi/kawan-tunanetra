@@ -30,8 +30,8 @@ const byte MPU_ADDR = 0x68;       // Alamat I2C MPU6050 (A4=SDA, A5=SCL)
 
 // ================= PARAMETER AMBANG =================
 const int FRONT_LOW_CM        = 100;
-const int FRONT_MEDIUM_CM     = 50;
-const int FRONT_NEAR_CM       = 20;
+const int FRONT_MEDIUM_CM     = 60;
+const int FRONT_NEAR_CM       = 30;
 const int DROP_DELTA_LIMIT_CM = 15;
 const int WATER_LIMIT         = 650;
 const float DROP_TILT_MAX_DEG = 45.0;
@@ -727,7 +727,7 @@ bool vibrationPattern(AlertState state, unsigned long now) {
     case OBJECT_MEDIUM:
       return (now % 400UL) < 120UL;
     case OBJECT_NEAR:
-      return (now % 220UL) < 110UL;
+      return true; // Getaran kontinu frekuensi tinggi tanpa jeda mati untuk bahaya rintangan sangat dekat (< 30cm)
     case WATER_ALERT: {
       unsigned long p = now % 1900UL;
       return pulseWindow(p, 0, 500) || pulseWindow(p, 750, 1250);

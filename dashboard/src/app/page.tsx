@@ -1560,10 +1560,10 @@ export default function KatanaDashboard() {
     } else if (demoWater > 650) {
       st = "PERMUKAAN_BASAH";
       mot = "ON";
-    } else if (demoFront < 20) {
+    } else if (demoFront < 30) {
       st = "OBJEK_DEKAT";
       mot = "ON";
-    } else if (demoFront < 50) {
+    } else if (demoFront < 60) {
       st = "OBJEK_SEDANG";
       mot = "ON";
     } else if (demoFront < 100) {

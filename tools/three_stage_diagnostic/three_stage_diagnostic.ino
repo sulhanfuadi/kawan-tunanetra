@@ -8,12 +8,13 @@
            - Memeriksa kesehatan logika internal pin CMOS D2-D12 & ADC A0-A7.
            - Mode sentuh kabel GND interaktif.
   
-  TAHAP 2: UJI BUZZER (AUDIO VERIFICATION)
-           - Bunyi bip ritmik pada Pin D6 untuk konfirmasi aktuator suara.
+  TAHAP 2: UJI AKTUATOR (BUZZER D6 & MOTOR VIBRATOR D5)
+           - Siklus getar motor D5 dan bunyi bip buzzer D6 secara otomatis/bergantian.
+           - Pengujian haptic feedback & audio verification.
   
   TAHAP 3: UJI SENSOR & AKTUATOR MANDIRI (PER KOMPONEN)
            - Mengetes sensor satu per satu saat dicolokkan ke pin.
-           - Mendukung perintah serial interaktif (Ketik: DEPAN, BAWAH, IMU, AIR, MOTOR, BUZZER).
+           - Mendukung perintah serial interaktif (Ketik: DEPAN, BAWAH, IMU, AIR, MOTOR, BUZZER, DUAL).
 */
 
 #include <Arduino.h>
@@ -34,25 +35,35 @@ const byte NUM_DIGITAL = sizeof(DIGITAL_PINS) / sizeof(DIGITAL_PINS[0]);
 
 enum DiagnosticStage {
   STAGE_1_PIN_CHECK,
-  STAGE_2_BUZZER_TEST,
+  STAGE_2_ACTUATOR_TEST,
   STAGE_3_COMPONENT_TEST
 };
 
+#define STAGE_2_BUZZER_TEST STAGE_2_ACTUATOR_TEST
+
 DiagnosticStage currentStage = STAGE_1_PIN_CHECK;
 bool lastDigitalState[14] = {false};
-unsigned long buzzerTimer = 0;
-bool buzzerBeepState = false;
-byte buzzerCount = 0;
+unsigned long actuatorTimer = 0;
+byte actuatorStep = 255;
+byte actuatorCount = 0;
 
 void printMenu() {
   Serial.println(F("\n========================================================"));
   Serial.println(F("    KATANA 3-STAGE HARDWARE DIAGNOSTIC CONSOLE          "));
   Serial.println(F("========================================================"));
   Serial.println(F("Perintah Navigasi Tahap:"));
-  Serial.println(F("  1  atau PIN    -> Masuk TAHAP 1: Cek Kesehatan Semua Pin"));
-  Serial.println(F("  2  atau BUZZER -> Masuk TAHAP 2: Tes Bunyi Buzzer (Pin D6)"));
-  Serial.println(F("  3  atau SENSOR -> Masuk TAHAP 3: Cek Sensor & Aktuator Live"));
+  Serial.println(F("  1  atau PIN      -> TAHAP 1: Cek Kesehatan Semua Pin"));
+  Serial.println(F("  2  atau AKTUATOR -> TAHAP 2: Siklus Uji Aktuator (Buzzer D6 & Motor D5)"));
+  Serial.println(F("  3  atau SENSOR   -> TAHAP 3: Cek Sensor & Aktuator Mandiri"));
   Serial.println(F("--------------------------------------------------------"));
+  Serial.println(F("Perintah Uji Aktuator Cepat:"));
+  Serial.println(F("  BUZZER           -> Uji coba suara Buzzer D6 (3x beep)"));
+  Serial.println(F("  MOTOR            -> Uji coba getar Motor D5 (1.5 detik)"));
+  Serial.println(F("  DUAL             -> Uji Buzzer + Motor getar bersamaan"));
+  Serial.println(F("  MOTOR ON / OFF   -> Nyalakan / matikan getar kontinu"));
+  Serial.println(F("  BUZZER ON / OFF  -> Nyalakan / matikan buzzer kontinu"));
+  Serial.println(F("  STOP             -> Matikan semua getaran, suara, & stream"));
+  Serial.println(F("========================================================\n"));
 }
 
 // =================== TAHAP 1: CEK PIN ===================
@@ -96,21 +107,37 @@ void runStage1PinCheck() {
   Serial.println(F("Tancapkan 1 kabel jumper ke GND, lalu sentuh ujungnya ke pin:"));
   Serial.println(F("D2, D3, D5, D6, D8, D9, D10, D11, atau A0."));
   Serial.println(F("Sistem akan langsung mendeteksi sentuhan pin secara LIVE!"));
-  Serial.println(F("Ketik '2' lalu Enter untuk lanjut ke TAHAP 2 (Tes Buzzer).\n"));
+  Serial.println(F("Ketik '2' lalu Enter untuk lanjut ke TAHAP 2 (Tes Aktuator Buzzer & Motor).\n"));
 }
 
-// =================== TAHAP 2: TES BUZZER ===================
-void runStage2Buzzer() {
-  currentStage = STAGE_2_BUZZER_TEST;
+// =================== TAHAP 2: TES AKTUATOR (BUZZER & MOTOR) ===================
+void runStage2Actuator() {
+  currentStage = STAGE_2_ACTUATOR_TEST;
   pinMode(PIN_BUZZER, OUTPUT);
-  buzzerCount = 0;
-  buzzerTimer = millis();
-  buzzerBeepState = false;
+  pinMode(PIN_MOTOR, OUTPUT);
+  digitalWrite(PIN_BUZZER, LOW);
+  analogWrite(PIN_MOTOR, 0);
 
-  Serial.println(F("\n>>> [TAHAP 2] UJI COBA SUARA BUZZER (PIN D6) <<<"));
-  Serial.println(F("Koneksi Fisik: Kaki (+) Buzzer ke Pin D6, Kaki (-) Buzzer ke GND."));
-  Serial.println(F("Buzzer akan berbunyi BEEP TERUS-MENERUS sampai Anda ketik '3' (Tahap 3) atau 'STOP'!"));
-  Serial.println(F("Silakan pasang atau cabut kabel buzzer sekarang untuk mendengarkan suaranya...\n"));
+  actuatorCount = 0;
+  actuatorTimer = millis();
+  actuatorStep = 255;
+
+  Serial.println(F("\n========================================================"));
+  Serial.println(F(">>> TAHAP 2: UJI AKTUATOR (BUZZER D6 & MOTOR GETAR D5) <<<"));
+  Serial.println(F("========================================================"));
+  Serial.println(F("Koneksi Fisik:"));
+  Serial.println(F("  1. Buzzer       : Kaki (+) ke Pin D6, Kaki (-) ke GND"));
+  Serial.println(F("  2. Motor Getar  : IN ke Pin D5 (PWM), VCC ke 5V, GND ke GND"));
+  Serial.println(F("\nSiklus otomatis bergantian berulang setiap 3.6 detik:"));
+  Serial.println(F("  - Fasa 1: Buzzer Beep di D6"));
+  Serial.println(F("  - Fasa 2: Motor Getar di D5 (PWM 220)"));
+  Serial.println(F("  - Fasa 3: Buzzer & Motor aktif bersamaan"));
+  Serial.println(F("--------------------------------------------------------"));
+  Serial.println(F("Perintah: Ketik 'BUZZER', 'MOTOR', 'DUAL', 'STOP', atau '3' (Tahap 3).\n"));
+}
+
+void runStage2Buzzer() {
+  runStage2Actuator();
 }
 
 // =================== TAHAP 3: BACA SENSOR PER KOMPONEN ===================
@@ -257,6 +284,30 @@ void testMotorActuator() {
   Serial.println(F("[UJI 5: MOTOR GETAR D5] Selesai. Apakah Anda merasakan getaran di tangan?"));
 }
 
+void testBuzzerActuator() {
+  Serial.println(F("[UJI 6: BUZZER D6] Membunyikan buzzer pola 3x beep (Pin D6)..."));
+  pinMode(PIN_BUZZER, OUTPUT);
+  for (byte b = 0; b < 3; b++) {
+    digitalWrite(PIN_BUZZER, HIGH);
+    delay(180);
+    digitalWrite(PIN_BUZZER, LOW);
+    delay(120);
+  }
+  Serial.println(F("[UJI 6: BUZZER D6] Selesai. Apakah Anda mendengar suara beep dari buzzer?"));
+}
+
+void testDualActuators() {
+  Serial.println(F("[UJI 7: DUAL AKTUATOR] Menyalakan Motor Getar (D5) dan Buzzer (D6) bersamaan 1.5 detik..."));
+  pinMode(PIN_MOTOR, OUTPUT);
+  pinMode(PIN_BUZZER, OUTPUT);
+  analogWrite(PIN_MOTOR, 220);
+  digitalWrite(PIN_BUZZER, HIGH);
+  delay(1500);
+  analogWrite(PIN_MOTOR, 0);
+  digitalWrite(PIN_BUZZER, LOW);
+  Serial.println(F("[UJI 7: DUAL AKTUATOR] Selesai. Keduanya aktif bersamaan!"));
+}
+
 // Mode Stream Data Realtime
 bool liveStreamActive = false;
 String liveStreamTarget = "ALL";
@@ -279,14 +330,21 @@ void runStage3ComponentTest() {
   testIMUSensor();
   testWaterSensor();
   testMotorActuator();
+  testBuzzerActuator();
   Serial.println(F("----------------------------------------------------------------"));
-  Serial.println(F("Ketik nama sensor untuk cek satuan, atau ketik 'STREAM' untuk live:"));
+  Serial.println(F("Perintah Uji Aktuator Langsung:"));
+  Serial.println(F("  MOTOR         -> Getarkan motor getar (Pin D5)"));
+  Serial.println(F("  BUZZER        -> Bunyikan buzzer (Pin D6)"));
+  Serial.println(F("  DUAL          -> Uji motor dan buzzer bersamaan"));
+  Serial.println(F("  MOTOR ON/OFF  -> Nyalakan / matikan motor terus-menerus"));
+  Serial.println(F("  BUZZER ON/OFF -> Nyalakan / matikan buzzer terus-menerus"));
+  Serial.println(F("Perintah Live Stream Sensor:"));
   Serial.println(F("  STREAM        -> Tampilkan data live stream terus-menerus"));
   Serial.println(F("  STREAM DEPAN  -> Live stream sensor depan saja"));
   Serial.println(F("  STREAM BAWAH  -> Live stream sensor bawah saja"));
   Serial.println(F("  STREAM IMU    -> Live stream sudut MPU6050 saja"));
   Serial.println(F("  STREAM AIR    -> Live stream voltase air saja"));
-  Serial.println(F("  STOP          -> Hentikan stream dan kembali ke menu\n"));
+  Serial.println(F("  STOP          -> Hentikan stream dan matikan semua aktuator\n"));
 }
 
 void processCommand(String cmd) {
@@ -296,12 +354,16 @@ void processCommand(String cmd) {
 
   if (cmd == "1" || cmd == "PIN") {
     liveStreamActive = false;
+    digitalWrite(PIN_BUZZER, LOW);
+    analogWrite(PIN_MOTOR, 0);
     runStage1PinCheck();
-  } else if (cmd == "2" || cmd == "BUZZER") {
+  } else if (cmd == "2" || cmd == "AKTUATOR" || cmd == "ACTUATOR") {
     liveStreamActive = false;
-    runStage2Buzzer();
+    runStage2Actuator();
   } else if (cmd == "3" || cmd == "SENSOR" || cmd == "TAHAP3" || cmd == "ALL") {
     liveStreamActive = false;
+    digitalWrite(PIN_BUZZER, LOW);
+    analogWrite(PIN_MOTOR, 0);
     runStage3ComponentTest();
   } else if (cmd == "DEPAN") {
     liveStreamActive = false;
@@ -315,9 +377,31 @@ void processCommand(String cmd) {
   } else if (cmd == "AIR" || cmd == "WATER") {
     liveStreamActive = false;
     testWaterSensor();
-  } else if (cmd == "MOTOR") {
+  } else if (cmd == "MOTOR" || cmd == "VIBE" || cmd == "GETAR") {
     liveStreamActive = false;
     testMotorActuator();
+  } else if (cmd == "BUZZER" || cmd == "BEEP" || cmd == "BUNYI") {
+    liveStreamActive = false;
+    testBuzzerActuator();
+  } else if (cmd == "DUAL" || cmd == "KEDUA" || cmd == "OUTPUT") {
+    liveStreamActive = false;
+    testDualActuators();
+  } else if (cmd == "MOTOR ON" || cmd == "MOTOR:ON") {
+    liveStreamActive = false;
+    pinMode(PIN_MOTOR, OUTPUT);
+    analogWrite(PIN_MOTOR, 220);
+    Serial.println(F("[MANUAL] Motor Getar D5 DINYALAKAN (Ketik MOTOR OFF untuk mematikan)."));
+  } else if (cmd == "MOTOR OFF" || cmd == "MOTOR:OFF") {
+    analogWrite(PIN_MOTOR, 0);
+    Serial.println(F("[MANUAL] Motor Getar D5 DIMATIKAN."));
+  } else if (cmd == "BUZZER ON" || cmd == "BUZZER:ON") {
+    liveStreamActive = false;
+    pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, HIGH);
+    Serial.println(F("[MANUAL] Buzzer D6 DINYALAKAN (Ketik BUZZER OFF untuk mematikan)."));
+  } else if (cmd == "BUZZER OFF" || cmd == "BUZZER:OFF") {
+    digitalWrite(PIN_BUZZER, LOW);
+    Serial.println(F("[MANUAL] Buzzer D6 DIMATIKAN."));
   } else if (cmd.startsWith("STREAM")) {
     currentStage = STAGE_3_COMPONENT_TEST;
     liveStreamActive = true;
@@ -331,11 +415,11 @@ void processCommand(String cmd) {
     liveStreamActive = false;
     digitalWrite(PIN_BUZZER, LOW);
     analogWrite(PIN_MOTOR, 0);
-    Serial.println(F("[STOP] Semua aktivitas / stream dimatikan."));
+    Serial.println(F("[STOP] Semua aktivitas, stream, dan aktuator dimatikan."));
   } else if (cmd == "MENU" || cmd == "HELP" || cmd == "?") {
     printMenu();
   } else {
-    Serial.println(F("Perintah tidak dikenal. Ketik '1', '2', '3', 'DEPAN', 'BAWAH', 'IMU', 'AIR', atau 'MOTOR'."));
+    Serial.println(F("Perintah tidak dikenal. Ketik '1', '2', '3', 'MOTOR', 'BUZZER', 'DUAL', 'DEPAN', 'BAWAH', 'IMU', 'AIR'."));
   }
 }
 
@@ -401,18 +485,55 @@ void loop() {
     }
   }
 
-  // 3. Logika Tahap 2: Bip Berulang Buzzer Secara Kontinu
-  else if (currentStage == STAGE_2_BUZZER_TEST) {
-    if (millis() - buzzerTimer >= 350) {
-      buzzerTimer = millis();
-      buzzerBeepState = !buzzerBeepState;
-      digitalWrite(PIN_BUZZER, buzzerBeepState ? HIGH : LOW);
-      if (buzzerBeepState) {
-        buzzerCount++;
-        Serial.print(F(">>> [BUZZER D6 AKTIF] Sinyal 5V dikirim (BEEP #"));
-        Serial.print(buzzerCount);
-        Serial.println(F(") - Ketik '3' untuk lanjut ke sensor atau 'STOP'"));
+  // 3. Logika Tahap 2: Siklus Uji Aktuator (Buzzer D6 & Motor Getar D5)
+  else if (currentStage == STAGE_2_ACTUATOR_TEST) {
+    unsigned long elapsed = millis() - actuatorTimer;
+
+    // Setiap siklus penuh berdurasi 3600ms (3.6 detik):
+    // 0 - 1200ms : Fasa 1 -> Buzzer BEEP di D6
+    // 1200 - 2400ms: Fasa 2 -> Motor GETAR di D5 (PWM 220)
+    // 2400 - 3600ms: Fasa 3 -> BERSAMAAN (D6 + D5)
+
+    if (elapsed < 1200) {
+      if (actuatorStep != 0) {
+        actuatorStep = 0;
+        actuatorCycleCount++;
+        analogWrite(PIN_MOTOR, 0);
+        Serial.print(F(">>> [SIKLUS #"));
+        Serial.print(actuatorCycleCount);
+        Serial.println(F("] [FASA 1: BUZZER D6] Bunyi BEEP aktif di Pin D6..."));
       }
+      bool beep = ((elapsed / 180) % 2 == 0);
+      digitalWrite(PIN_BUZZER, beep ? HIGH : LOW);
+      analogWrite(PIN_MOTOR, 0);
+    } 
+    else if (elapsed < 2400) {
+      if (actuatorStep != 1) {
+        actuatorStep = 1;
+        digitalWrite(PIN_BUZZER, LOW);
+        Serial.print(F(">>> [SIKLUS #"));
+        Serial.print(actuatorCycleCount);
+        Serial.println(F("] [FASA 2: MOTOR GETAR D5] Denyut GETAR aktif di Pin D5 (PWM 220)..."));
+      }
+      digitalWrite(PIN_BUZZER, LOW);
+      bool vibe = (((elapsed - 1200) / 200) % 2 == 0);
+      analogWrite(PIN_MOTOR, vibe ? 220 : 0);
+    } 
+    else if (elapsed < 3600) {
+      if (actuatorStep != 2) {
+        actuatorStep = 2;
+        Serial.print(F(">>> [SIKLUS #"));
+        Serial.print(actuatorCycleCount);
+        Serial.println(F("] [FASA 3: DUAL] BUZZER D6 & MOTOR D5 AKTIF BERSAMAAN!"));
+      }
+      digitalWrite(PIN_BUZZER, HIGH);
+      analogWrite(PIN_MOTOR, 220);
+    } 
+    else {
+      digitalWrite(PIN_BUZZER, LOW);
+      analogWrite(PIN_MOTOR, 0);
+      actuatorTimer = millis();
+      actuatorStep = 255;
     }
   }
 
