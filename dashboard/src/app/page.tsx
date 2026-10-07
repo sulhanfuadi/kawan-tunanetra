@@ -33,7 +33,12 @@ import {
   FileCode,
   CheckCircle2,
   AlertCircle,
-  Zap
+  Zap,
+  Download,
+  Square,
+  Circle,
+  Play,
+  FileSpreadsheet
 } from "lucide-react";
 import { parseHex } from "../utils/hexParser";
 import { Stk500Flasher } from "../utils/stk500";
@@ -148,6 +153,17 @@ const translations = {
     nearPreset: "OBJEK DEKAT",
     normalPreset: "NORMAL",
     closeDemo: "TUTUP DEMO",
+
+    // Data Logger / CSV
+    dataLoggerTitle: "Perekam Telemetri & Ekspor CSV",
+    recActive: "MEREKAM",
+    recIdle: "STANDBY",
+    startRec: "Mulai Rekam",
+    stopRec: "Hentikan",
+    downloadCsv: "Unduh CSV",
+    clearRec: "Reset",
+    recordedCount: "data tersimpan",
+    recDuration: "Durasi:",
     
     // Simulation Panel
     simTitle: "Panel Simulasi Hardware (Wokwi Style)",
@@ -290,6 +306,17 @@ const translations = {
     nearPreset: "NEAR OBSTACLE",
     normalPreset: "NORMAL",
     closeDemo: "CLOSE DEMO",
+
+    // Data Logger / CSV
+    dataLoggerTitle: "Telemetry Logger & CSV Export",
+    recActive: "RECORDING",
+    recIdle: "STANDBY",
+    startRec: "Start Record",
+    stopRec: "Stop",
+    downloadCsv: "Download CSV",
+    clearRec: "Reset",
+    recordedCount: "records saved",
+    recDuration: "Duration:",
     
     // Simulation Panel
     simTitle: "Hardware Simulation Panel (Wokwi Style)",
@@ -407,6 +434,24 @@ export default function KatanaDashboard() {
     "[INFO] Hubungkan kabel serial USB Arduino Nano atau aktifkan Mode Demo untuk pemantauan."
   ]);
   const [autoscroll, setAutoscroll] = useState(true);
+
+  // Data Logger & CSV Export state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordCount, setRecordCount] = useState(0);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const recordedDataRef = useRef<Array<{
+    timestamp: string;
+    frontCm: number | string;
+    downCm: number | string;
+    tiltDeg: number | string;
+    waterVal: number | string;
+    state: string;
+    motor: string;
+    buzzer: string;
+    source: string;
+  }>>([]);
+  const isRecordingRef = useRef(false);
+  const dataRef = useRef<TelemetryData>(initialTelemetryState);
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<"monitor" | "serial_flash">("monitor");
@@ -601,6 +646,148 @@ export default function KatanaDashboard() {
     setLogs((prev) => [...prev.slice(-150), msg]);
   };
 
+  // Data Logger synchronization effects & methods
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (isRecording) {
+      timer = setInterval(() => {
+        setRecordDuration((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isRecording]);
+
+  const formatDuration = (sec: number) => {
+    const m = Math.floor(sec / 60).toString().padStart(2, "0");
+    const s = (sec % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
+  const recordDataPoint = (dataPoint: {
+    frontCm: number | string;
+    downCm: number | string;
+    tiltDeg: number | string;
+    waterVal: number | string;
+    state: string;
+    motor: string;
+    buzzer: string;
+    source: string;
+  }) => {
+    if (!isRecordingRef.current) return;
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const pad3 = (n: number) => n.toString().padStart(3, "0");
+    const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad3(now.getMilliseconds())}`;
+
+    recordedDataRef.current.push({
+      timestamp,
+      ...dataPoint
+    });
+    setRecordCount(recordedDataRef.current.length);
+  };
+
+  const startRecording = () => {
+    setIsRecording(true);
+    isRecordingRef.current = true;
+    setRecordDuration(0);
+    addLog("[DATA-LOGGER] Perekaman telemetri dimulai...");
+  };
+
+  const stopRecording = () => {
+    setIsRecording(false);
+    isRecordingRef.current = false;
+    addLog(`[DATA-LOGGER] Perekaman dihentikan. Total ${recordedDataRef.current.length} baris data telemetri tersimpan.`);
+  };
+
+  const clearRecords = () => {
+    recordedDataRef.current = [];
+    setRecordCount(0);
+    setRecordDuration(0);
+    addLog("[DATA-LOGGER] Buffer data rekaman dikosongkan.");
+  };
+
+  const downloadCsv = () => {
+    if (recordedDataRef.current.length === 0) {
+      alert("Belum ada data rekaman untuk diunduh. Klik 'Mulai Rekam' terlebih dahulu.");
+      return;
+    }
+
+    const headers = [
+      "Timestamp",
+      "Jarak_Depan_cm",
+      "Jarak_Bawah_cm",
+      "Kemiringan_MPU_deg",
+      "Sensor_Air_ADC",
+      "Status_Bahaya",
+      "Motor_Haptik",
+      "Buzzer_SOS",
+      "Sumber_Data"
+    ];
+
+    const csvRows = [headers.join(",")];
+
+    for (const row of recordedDataRef.current) {
+      const values = [
+        `"${row.timestamp}"`,
+        row.frontCm !== "" ? row.frontCm : "",
+        row.downCm !== "" ? row.downCm : "",
+        row.tiltDeg !== "" ? row.tiltDeg : "",
+        row.waterVal !== "" ? row.waterVal : "",
+        `"${row.state}"`,
+        `"${row.motor}"`,
+        `"${row.buzzer}"`,
+        `"${row.source}"`
+      ];
+      csvRows.push(values.join(","));
+    }
+
+    const csvString = csvRows.join("\r\n");
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const filename = `katana_telemetry_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
+
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    addLog(`[SISTEM] File dataset ${filename} (${recordedDataRef.current.length} baris) berhasil diunduh.`);
+  };
+
+  // Periodic recording during Demo Mode when disconnected
+  useEffect(() => {
+    if (!isDemoMode || isConnected || !isRecording) return;
+    const interval = setInterval(() => {
+      recordDataPoint({
+        frontCm: data.frontCm !== null ? data.frontCm : "",
+        downCm: data.downCm !== null ? data.downCm : "",
+        tiltDeg: data.tiltDeg !== null ? data.tiltDeg : "",
+        waterVal: data.waterVal !== null ? data.waterVal : "",
+        state: data.state,
+        motor: data.motor,
+        buzzer: data.buzzer,
+        source: "DEMO_UI"
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isDemoMode, isConnected, isRecording, data]);
+
   // Fetch ports saat mount
   useEffect(() => {
     fetch("/api/ports")
@@ -765,61 +952,97 @@ export default function KatanaDashboard() {
     if (line.includes("[KONEKSI]") || line.includes("[SIMULASI]") || line.includes("[STREAM]")) {
       const isSim = line.includes("[SIMULASI]");
 
+      let parsedFrontCm: number | null | undefined = undefined;
+      let parsedFrontConn: boolean | undefined = undefined;
+      let parsedDownCm: number | null | undefined = undefined;
+      let parsedDownConn: boolean | undefined = undefined;
+      let parsedTiltDeg: number | null | undefined = undefined;
+      let parsedMpuConn: boolean | undefined = undefined;
+      let parsedWaterVal: number | null | undefined = undefined;
+      let parsedWaterConn: boolean | undefined = undefined;
+      let parsedState: string | undefined = undefined;
+      let parsedMotor: string | undefined = undefined;
+      let parsedBuzzer: string | undefined = undefined;
+
+      // Parsing Sensor Depan (dukung format: Depan:RIIL(25cm), Depan:SIM(25cm), Depan: 25.4cm)
+      const front = line.match(/Depan:(?:RIIL|SIM|\s*)\(?([0-9.]+)\s*cm\)?/i);
+      if (front) {
+        parsedFrontConn = true;
+        parsedFrontCm = Math.round(parseFloat(front[1]));
+      } else if (line.includes("Depan:LEPAS") || line.includes("Depan: LEPAS")) {
+        parsedFrontConn = false;
+        parsedFrontCm = null;
+      }
+
+      // Parsing Sensor Bawah (dukung format: Bawah:RIIL(30cm), Bawah:SIM(30cm), Bawah: 30.1cm)
+      const down = line.match(/Bawah:(?:RIIL|SIM|\s*)\(?([0-9.]+)\s*cm\)?/i);
+      if (down) {
+        parsedDownConn = true;
+        parsedDownCm = Math.round(parseFloat(down[1]));
+      } else if (line.includes("Bawah:LEPAS") || line.includes("Bawah: LEPAS")) {
+        parsedDownConn = false;
+        parsedDownCm = null;
+      }
+
+      // Parsing Sensor IMU MPU6050 (dukung format: IMU:RIIL(12.5°), IMU:SIM(12.5°), Kemiringan: 12.5°)
+      const imu = line.match(/(?:IMU:(?:RIIL|SIM)\(|(?:Kemiringan|Sudut)[:\s=]+)([0-9.]+)°?\)?/i);
+      if (imu) {
+        parsedMpuConn = true;
+        parsedTiltDeg = parseFloat(imu[1]);
+      } else if (line.includes("IMU:LEPAS") || line.includes("IMU: LEPAS")) {
+        parsedMpuConn = false;
+        parsedTiltDeg = null;
+      }
+
+      // Parsing Sensor Air (dukung format: Air:RIIL(245), Air:SIM(245), Air: 245 ADC)
+      const water = line.match(/Air:(?:RIIL|SIM|\s*)\(?(\d+)(?:\s*ADC|\))/i);
+      if (water) {
+        parsedWaterConn = true;
+        parsedWaterVal = parseInt(water[1], 10);
+      } else if (line.includes("Air:LEPAS") || line.includes("Air: LEPAS") || line.includes("Air: TERPUTUS")) {
+        parsedWaterConn = false;
+        parsedWaterVal = null;
+      }
+
+      // State sistem & status aktuator (jika ada pada baris)
+      const st = line.match(/STATE:\s*([^|]+)/);
+      if (st) parsedState = st[1].trim();
+
+      const motor = line.match(/Motor:\s*(ON|OFF)/i);
+      if (motor) parsedMotor = motor[1].toUpperCase();
+
+      const buz = line.match(/Buzzer:\s*(SOS|DIAM)/i);
+      if (buz) parsedBuzzer = buz[1].toUpperCase();
+
       setData((prev) => {
         const next: TelemetryData = { ...prev };
-
-        // Parsing Sensor Depan (dukung format: Depan:RIIL(25cm), Depan:SIM(25cm), Depan: 25.4cm)
-        const front = line.match(/Depan:(?:RIIL|SIM|\s*)\(?([0-9.]+)\s*cm\)?/i);
-        if (front) {
-          next.frontConnected = true;
-          next.frontCm = Math.round(parseFloat(front[1]));
-        } else if (line.includes("Depan:LEPAS") || line.includes("Depan: LEPAS")) {
-          next.frontConnected = false;
-          next.frontCm = null;
-        }
-
-        // Parsing Sensor Bawah (dukung format: Bawah:RIIL(30cm), Bawah:SIM(30cm), Bawah: 30.1cm)
-        const down = line.match(/Bawah:(?:RIIL|SIM|\s*)\(?([0-9.]+)\s*cm\)?/i);
-        if (down) {
-          next.downConnected = true;
-          next.downCm = Math.round(parseFloat(down[1]));
-        } else if (line.includes("Bawah:LEPAS") || line.includes("Bawah: LEPAS")) {
-          next.downConnected = false;
-          next.downCm = null;
-        }
-
-        // Parsing Sensor IMU MPU6050 (dukung format: IMU:RIIL(12.5°), IMU:SIM(12.5°), Kemiringan: 12.5°)
-        const imu = line.match(/(?:IMU:(?:RIIL|SIM)\(|(?:Kemiringan|Sudut)[:\s=]+)([0-9.]+)°?\)?/i);
-        if (imu) {
-          next.mpuConnected = true;
-          next.tiltDeg = parseFloat(imu[1]);
-        } else if (line.includes("IMU:LEPAS") || line.includes("IMU: LEPAS")) {
-          next.mpuConnected = false;
-          next.tiltDeg = null;
-        }
-
-        // Parsing Sensor Air (dukung format: Air:RIIL(245), Air:SIM(245), Air: 245 ADC)
-        const water = line.match(/Air:(?:RIIL|SIM|\s*)\(?(\d+)(?:\s*ADC|\))/i);
-        if (water) {
-          next.waterConnected = true;
-          next.waterVal = parseInt(water[1], 10);
-        } else if (line.includes("Air:LEPAS") || line.includes("Air: LEPAS") || line.includes("Air: TERPUTUS")) {
-          next.waterConnected = false;
-          next.waterVal = null;
-        }
-
-        // State sistem & status aktuator (jika ada pada baris)
-        const st = line.match(/STATE:\s*([^|]+)/);
-        if (st) next.state = st[1].trim();
-
-        const motor = line.match(/Motor:\s*(ON|OFF)/i);
-        if (motor) next.motor = motor[1].toUpperCase();
-
-        const buz = line.match(/Buzzer:\s*(SOS|DIAM)/i);
-        if (buz) next.buzzer = buz[1].toUpperCase();
-
+        if (parsedFrontConn !== undefined) next.frontConnected = parsedFrontConn;
+        if (parsedFrontCm !== undefined) next.frontCm = parsedFrontCm;
+        if (parsedDownConn !== undefined) next.downConnected = parsedDownConn;
+        if (parsedDownCm !== undefined) next.downCm = parsedDownCm;
+        if (parsedMpuConn !== undefined) next.mpuConnected = parsedMpuConn;
+        if (parsedTiltDeg !== undefined) next.tiltDeg = parsedTiltDeg;
+        if (parsedWaterConn !== undefined) next.waterConnected = parsedWaterConn;
+        if (parsedWaterVal !== undefined) next.waterVal = parsedWaterVal;
+        if (parsedState !== undefined) next.state = parsedState;
+        if (parsedMotor !== undefined) next.motor = parsedMotor;
+        if (parsedBuzzer !== undefined) next.buzzer = parsedBuzzer;
         return next;
       });
+
+      if (isRecordingRef.current) {
+        const cur = dataRef.current;
+        recordDataPoint({
+          frontCm: parsedFrontCm !== undefined ? (parsedFrontCm !== null ? parsedFrontCm : "") : (cur.frontCm !== null ? cur.frontCm : ""),
+          downCm: parsedDownCm !== undefined ? (parsedDownCm !== null ? parsedDownCm : "") : (cur.downCm !== null ? cur.downCm : ""),
+          tiltDeg: parsedTiltDeg !== undefined ? (parsedTiltDeg !== null ? parsedTiltDeg : "") : (cur.tiltDeg !== null ? cur.tiltDeg : ""),
+          waterVal: parsedWaterVal !== undefined ? (parsedWaterVal !== null ? parsedWaterVal : "") : (cur.waterVal !== null ? cur.waterVal : ""),
+          state: parsedState || cur.state,
+          motor: parsedMotor || cur.motor,
+          buzzer: parsedBuzzer || cur.buzzer,
+          source: isSim ? "SIMULASI" : "RIIL"
+        });
+      }
 
       if (isSim && !isDemoMode) {
         setIsDemoMode(true);
@@ -2099,6 +2322,78 @@ export default function KatanaDashboard() {
                 </div>
               </div>
 
+              {/* Telemetry Data Logger & CSV Export Card */}
+              <div className="p-3.5 bg-zinc-100/70 dark:bg-zinc-900/60 border-t border-zinc-200 dark:border-zinc-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>{t.dataLoggerTitle}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {isRecording ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 animate-pulse">
+                        <Circle className="w-2 h-2 fill-current" />
+                        {t.recActive} ({formatDuration(recordDuration)})
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-200/60 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                        {t.recIdle}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-mono text-zinc-500">
+                      {recordCount} {t.recordedCount}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {!isRecording ? (
+                    <button
+                      type="button"
+                      onClick={startRecording}
+                      className="flex-1 h-7.5 flex items-center justify-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-950 font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs"
+                    >
+                      <Play className="w-3 h-3 fill-current" />
+                      <span>{t.startRec}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={stopRecording}
+                      className="flex-1 h-7.5 flex items-center justify-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs animate-pulse"
+                    >
+                      <Square className="w-3 h-3 fill-current" />
+                      <span>{t.stopRec}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={downloadCsv}
+                    disabled={recordCount === 0}
+                    className={`h-7.5 px-3 flex items-center justify-center gap-1.5 font-bold text-xs rounded-lg border transition-all cursor-pointer ${
+                      recordCount > 0
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 border-zinc-200 dark:border-zinc-800 cursor-not-allowed"
+                    }`}
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>{t.downloadCsv}</span>
+                  </button>
+
+                  {recordCount > 0 && !isRecording && (
+                    <button
+                      type="button"
+                      onClick={clearRecords}
+                      title={t.clearRec}
+                      className="h-7.5 px-2 flex items-center justify-center text-xs text-zinc-500 hover:text-rose-600 border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {/* Live Serial Console */}
               <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
                 <div className="flex items-center justify-between text-xs">
@@ -2514,6 +2809,76 @@ export default function KatanaDashboard() {
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>{t.clear}</span>
                   </button>
+                </div>
+              </div>
+
+              {/* Telemetry Logger Sub-Bar for Tab 2 */}
+              <div className="px-5 py-2.5 bg-zinc-50 dark:bg-zinc-900/60 border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 font-mono font-bold text-zinc-900 dark:text-zinc-100">
+                    <FileSpreadsheet className="w-4 h-4 text-zinc-500" />
+                    <span>{t.dataLoggerTitle}</span>
+                  </div>
+                  {isRecording ? (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 animate-pulse">
+                      <Circle className="w-2 h-2 fill-current" />
+                      {t.recActive} ({formatDuration(recordDuration)})
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-zinc-200/60 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                      {t.recIdle}
+                    </span>
+                  )}
+                  <span className="text-[11px] font-mono text-zinc-500">
+                    {recordCount} {t.recordedCount}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {!isRecording ? (
+                    <button
+                      type="button"
+                      onClick={startRecording}
+                      className="h-7 px-3 flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-950 font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs"
+                    >
+                      <Play className="w-3 h-3 fill-current" />
+                      <span>{t.startRec}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={stopRecording}
+                      className="h-7 px-3 flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs animate-pulse"
+                    >
+                      <Square className="w-3 h-3 fill-current" />
+                      <span>{t.stopRec}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={downloadCsv}
+                    disabled={recordCount === 0}
+                    className={`h-7 px-3 flex items-center gap-1.5 font-bold text-xs rounded-lg border transition-all cursor-pointer ${
+                      recordCount > 0
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 border-zinc-200 dark:border-zinc-800 cursor-not-allowed"
+                    }`}
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>{t.downloadCsv}</span>
+                  </button>
+
+                  {recordCount > 0 && !isRecording && (
+                    <button
+                      type="button"
+                      onClick={clearRecords}
+                      title={t.clearRec}
+                      className="h-7 px-2 flex items-center text-xs text-zinc-500 hover:text-rose-600 border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
               </div>
 
