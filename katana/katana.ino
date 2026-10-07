@@ -806,19 +806,29 @@ bool pulseWindow(unsigned long phase, unsigned long startMs, unsigned long endMs
 bool vibrationPattern(AlertState state, unsigned long now) {
   switch (state) {
     case OBJECT_LOW:
-      return (now % 1000UL) < 100UL;
+      // Jarak Jauh (60-100cm): Pulsa lebih tegas, jeda diperpendek (600ms siklus: 150ms getar, 450ms jeda)
+      return (now % 600UL) < 150UL;
+
     case OBJECT_MEDIUM:
-      return (now % 400UL) < 120UL;
+      // Jarak Sedang (30-60cm): Denyut cepat & rapat (260ms siklus: 140ms getar, 120ms jeda)
+      return (now % 260UL) < 140UL;
+
     case OBJECT_NEAR:
-      return true; // Getaran kontinu frekuensi tinggi tanpa jeda mati untuk bahaya rintangan sangat dekat (< 30cm)
+      // Jarak Sangat Dekat (<30cm): Getaran MAKSIMAL KONTINU 100% tanpa henti
+      return true;
+
     case WATER_ALERT: {
-      unsigned long p = now % 1900UL;
-      return pulseWindow(p, 0, 500) || pulseWindow(p, 750, 1250);
+      // Genangan Air / Basah: 2 Denyut Mantap & Cepat (siklus 1100ms: 400ms getar, 150ms jeda, 400ms getar, 150ms jeda)
+      unsigned long p = now % 1100UL;
+      return pulseWindow(p, 0, 400) || pulseWindow(p, 550, 950);
     }
+
     case DROP_ALERT: {
-      unsigned long p = now % 1300UL;
-      return pulseWindow(p, 0, 160) || pulseWindow(p, 280, 440) || pulseWindow(p, 560, 720);
+      // Tepi Turunan / Lubang: 3 Denyut Cepat Menghentak (siklus 850ms)
+      unsigned long p = now % 850UL;
+      return pulseWindow(p, 0, 180) || pulseWindow(p, 260, 440) || pulseWindow(p, 520, 700);
     }
+
     default:
       return false;
   }
@@ -863,7 +873,7 @@ void updateOutputs(AlertState state) {
   if (overrideMotorUntilMs > 0) {
     if (now < overrideMotorUntilMs) {
       vibrationOn = true;
-      analogWrite(PIN_VIBRATION, manualMotorPwm > 0 ? manualMotorPwm : 220);
+      analogWrite(PIN_VIBRATION, manualMotorPwm > 0 ? manualMotorPwm : 255);
     } else {
       overrideMotorUntilMs = 0;
       vibrationOn = false;
@@ -874,7 +884,8 @@ void updateOutputs(AlertState state) {
     analogWrite(PIN_VIBRATION, manualMotorPwm);
   } else {
     vibrationOn = vibrationPattern(state, now);
-    analogWrite(PIN_VIBRATION, vibrationOn ? 220 : 0);
+    // Tenaga getar penuh: PWM 255 (100% tegangan motor) untuk getaran yang jauh lebih terasa dan responsif
+    analogWrite(PIN_VIBRATION, vibrationOn ? 255 : 0);
   }
 
   // 2. Buzzer: Cek apakah sedang dalam mode uji/override manual
