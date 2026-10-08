@@ -26,7 +26,7 @@ const byte PIN_DOWN_ECHO  = 8;    // HC-SR04 Bawah Echo
 const byte PIN_DOWN_TRIG  = 9;    // HC-SR04 Bawah Trig
 const byte PIN_WATER_RAW  = A0;   // Sensor Air Analog (A0)
 
-const byte MPU_ADDR = 0x68;       // Alamat I2C MPU6050 (A4=SDA, A5=SCL)
+const byte DEFAULT_MPU_ADDR = 0x68;   // Alamat I2C MPU6050 default (A4=SDA, A5=SCL)
 
 // ================= PARAMETER AMBANG =================
 const int FRONT_LOW_CM        = 100;
@@ -103,7 +103,7 @@ void checkSerialInput();
 void driveBuzzer(bool on);
 void selfTest();
 
-byte mpuAddr = 0x68;              // Alamat I2C MPU6050 dinamis (0x68 atau 0x69)
+byte mpuAddr = DEFAULT_MPU_ADDR;   // Alamat I2C MPU6050 dinamis (0x68 atau 0x69)
 bool frontPinsInverted = false;    // Status apakah pin Trig/Echo depan tertukar
 bool downPinsInverted = false;     // Status apakah pin Trig/Echo bawah tertukar
 
