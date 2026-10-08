@@ -38,7 +38,8 @@ import {
   Square,
   Circle,
   Play,
-  FileSpreadsheet
+  FileSpreadsheet,
+  FolderArchive
 } from "lucide-react";
 import { parseHex } from "../utils/hexParser";
 import { Stk500Flasher } from "../utils/stk500";
@@ -75,6 +76,15 @@ export interface TelemetryRecord {
   buzzer: string;
   buzzerBinary: number;
   source: string;
+}
+
+export interface ArchivedFile {
+  name: string;
+  sizeBytes: number;
+  sizeKb: string;
+  createdAt: string;
+  rowCount: number;
+  downloadUrl: string;
 }
 
 const initialTelemetryState: TelemetryData = {
@@ -193,6 +203,12 @@ const translations = {
     avgDistance: "Rata-rata Depan",
     maxTilt: "Kemiringan Maks",
     hazardEvents: "Pemicu Bahaya",
+    archiveSectionTitle: "Arsip Telemetri (Folder katana/archive)",
+    archiveEmpty: "Belum ada file CSV tersimpan di folder katana/archive.",
+    archiveDownload: "Unduh",
+    archiveDelete: "Hapus",
+    archiveRefresh: "Perbarui Arsip",
+    archiveSavedBadge: "Tersimpan di katana/archive/",
     
     // Simulation Panel
     simTitle: "Panel Simulasi Hardware (Wokwi Style)",
@@ -355,6 +371,12 @@ const translations = {
     avgDistance: "Avg Front",
     maxTilt: "Max Tilt",
     hazardEvents: "Hazard Triggers",
+    archiveSectionTitle: "Telemetry Archive (katana/archive folder)",
+    archiveEmpty: "No CSV files yet in katana/archive folder.",
+    archiveDownload: "Download",
+    archiveDelete: "Delete",
+    archiveRefresh: "Refresh Archive",
+    archiveSavedBadge: "Saved in katana/archive/",
     
     // Simulation Panel
     simTitle: "Hardware Simulation Panel (Wokwi Style)",
@@ -484,6 +506,12 @@ export default function KatanaDashboard() {
   const dataRef = useRef<TelemetryData>(initialTelemetryState);
   const [hasBackup, setHasBackup] = useState(false);
   const [backupCount, setBackupCount] = useState(0);
+
+  // Archive & Watchdog state
+  const [archivedFiles, setArchivedFiles] = useState<ArchivedFile[]>([]);
+  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
+  const [lastSavedArchivePath, setLastSavedArchivePath] = useState<string | null>(null);
+  const lastSerialDataTimeRef = useRef<number>(0);
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<"monitor" | "serial_flash">("monitor");
@@ -783,115 +811,60 @@ export default function KatanaDashboard() {
     setRecordCount(recordedDataRef.current.length);
   };
 
+  const recordCurrentSnapshot = (sourceOverride?: string) => {
+    const cur = dataRef.current;
+    recordDataPoint({
+      frontCm: cur.frontCm !== null ? cur.frontCm : (isDemoMode ? 120 : 140),
+      downCm: cur.downCm !== null ? cur.downCm : 30,
+      tiltDeg: cur.tiltDeg !== null ? cur.tiltDeg : 12,
+      waterVal: cur.waterVal !== null ? cur.waterVal : 180,
+      state: cur.state || "NORMAL",
+      motor: cur.motor || "OFF",
+      buzzer: cur.buzzer || "DIAM",
+      source: sourceOverride || (isConnected ? "RIIL" : "SIMULASI")
+    });
+  };
+
+  const fetchArchiveList = async () => {
+    setIsLoadingArchive(true);
+    try {
+      const res = await fetch("/api/archive");
+      const json = await res.json();
+      if (json.files && Array.isArray(json.files)) {
+        setArchivedFiles(json.files);
+      }
+    } catch (e) {
+    } finally {
+      setIsLoadingArchive(false);
+    }
+  };
+
+  const deleteArchiveFile = async (filename: string) => {
+    if (!confirm(`Hapus file ${filename} dari folder katana/archive?`)) return;
+    try {
+      const res = await fetch(`/api/archive?file=${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog(`[ARSIP] File ${filename} berhasil dihapus.`);
+        fetchArchiveList();
+      }
+    } catch (e) {
+      addLog(`[PERINGATAN] Gagal menghapus file arsip.`);
+    }
+  };
+
   const startRecording = () => {
     recordingStartTimeRef.current = Date.now();
     setIsRecording(true);
     isRecordingRef.current = true;
     setRecordDuration(0);
+    recordCurrentSnapshot();
     addLog("[DATA-LOGGER] Perekaman telemetri dimulai...");
   };
 
-  const stopRecording = () => {
-    setIsRecording(false);
-    isRecordingRef.current = false;
-    try {
-      if (recordedDataRef.current.length > 0) {
-        localStorage.setItem(
-          "katana_telemetry_backup",
-          JSON.stringify(recordedDataRef.current.slice(-5000))
-        );
-      }
-    } catch (e) {}
-    addLog(`[DATA-LOGGER] Perekaman dihentikan. Total ${recordedDataRef.current.length} baris data telemetri tersimpan.`);
-  };
-
-  const clearRecords = () => {
-    recordedDataRef.current = [];
-    recordingStartTimeRef.current = null;
-    setRecordCount(0);
-    setRecordDuration(0);
-    setHasBackup(false);
-    setBackupCount(0);
-    try {
-      localStorage.removeItem("katana_telemetry_backup");
-    } catch (e) {}
-    addLog("[DATA-LOGGER] Buffer data rekaman dikosongkan.");
-  };
-
-  const restoreBackup = () => {
-    try {
-      const raw = localStorage.getItem("katana_telemetry_backup");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          recordedDataRef.current = parsed;
-          setRecordCount(parsed.length);
-          setHasBackup(false);
-          addLog(`[DATA-LOGGER] Berhasil memulihkan ${parsed.length} baris data telemetri dari cadangan browser.`);
-        }
-      }
-    } catch (e) {
-      console.error("Gagal memulihkan cadangan:", e);
-    }
-  };
-
-  // Protection against accidental page close/refresh when recording or having unsaved data
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isRecording || recordCount > 0) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [isRecording, recordCount]);
-
-  // Check existing local storage backup on mount
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("katana_telemetry_backup");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setHasBackup(true);
-          setBackupCount(parsed.length);
-        }
-      }
-    } catch (e) {}
-  }, []);
-
-  // Summary statistics for session
-  const getSessionMetrics = () => {
-    const list = recordedDataRef.current;
-    if (list.length === 0) return null;
-
-    const frontVals = list
-      .map((r) => (typeof r.frontCm === "number" ? r.frontCm : parseFloat(r.frontCm as string)))
-      .filter((v) => !isNaN(v) && v > 0);
-    const avgFront = frontVals.length > 0 ? (frontVals.reduce((a, b) => a + b, 0) / frontVals.length).toFixed(1) : "-";
-
-    const tiltVals = list
-      .map((r) => (typeof r.tiltDeg === "number" ? r.tiltDeg : parseFloat(r.tiltDeg as string)))
-      .filter((v) => !isNaN(v));
-    const maxTilt = tiltVals.length > 0 ? Math.max(...tiltVals).toFixed(1) : "-";
-
-    const hazardTriggers = list.filter((r) => r.hazardCode > 0).length;
-
-    return {
-      total: list.length,
-      avgFront,
-      maxTilt,
-      hazardTriggers
-    };
-  };
-
-  const downloadCsv = () => {
-    if (recordedDataRef.current.length === 0) {
-      alert("Belum ada data rekaman untuk diunduh. Klik 'Mulai Rekam' terlebih dahulu.");
-      return;
-    }
-
+  const generateCsvString = (): { csvString: string; filename: string } => {
     const headers = [
       "No",
       "Timestamp",
@@ -936,14 +909,15 @@ export default function KatanaDashboard() {
     }
 
     const csvString = csvRows.join("\r\n");
-    // UTF-8 BOM (\uFEFF) ensures Microsoft Excel (Windows & Mac) reads character sets and delimiters cleanly
-    const blob = new Blob(["\uFEFF" + csvString], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-
     const now = new Date();
     const pad = (n: number) => n.toString().padStart(2, "0");
     const filename = `katana_telemetry_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
+    return { csvString, filename };
+  };
 
+  const triggerBrowserDownload = (csvString: string, filename: string) => {
+    const blob = new Blob(["\uFEFF" + csvString], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
     link.setAttribute("download", filename);
@@ -951,8 +925,142 @@ export default function KatanaDashboard() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
 
-    addLog(`[SISTEM] File dataset ${filename} (${recordedDataRef.current.length} baris) berhasil diunduh.`);
+  const saveToArchive = async (csvString: string, filename: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/archive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, csvContent: csvString }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setLastSavedArchivePath(result.path);
+        addLog(`[ARSIP] Berhasil disimpan ke: ${result.path} (${result.rowCount} baris)`);
+        fetchArchiveList();
+        return true;
+      }
+    } catch (err) {
+      addLog("[PERINGATAN] Gagal menyimpan file ke folder arsip lokal.");
+    }
+    return false;
+  };
+
+  const stopRecording = async () => {
+    setIsRecording(false);
+    isRecordingRef.current = false;
+    const count = recordedDataRef.current.length;
+    try {
+      if (count > 0) {
+        localStorage.setItem(
+          "katana_telemetry_backup",
+          JSON.stringify(recordedDataRef.current.slice(-5000))
+        );
+        const { csvString, filename } = generateCsvString();
+        await saveToArchive(csvString, filename);
+        triggerBrowserDownload(csvString, filename);
+      }
+    } catch (e) {}
+    addLog(`[DATA-LOGGER] Perekaman dihentikan. Total ${count} baris data telemetri tersimpan & diunduh.`);
+  };
+
+  const clearRecords = () => {
+    recordedDataRef.current = [];
+    recordingStartTimeRef.current = null;
+    setRecordCount(0);
+    setRecordDuration(0);
+    setHasBackup(false);
+    setBackupCount(0);
+    try {
+      localStorage.removeItem("katana_telemetry_backup");
+    } catch (e) {}
+    addLog("[DATA-LOGGER] Buffer data rekaman dikosongkan.");
+  };
+
+  const restoreBackup = () => {
+    try {
+      const raw = localStorage.getItem("katana_telemetry_backup");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          recordedDataRef.current = parsed;
+          setRecordCount(parsed.length);
+          setHasBackup(false);
+          addLog(`[DATA-LOGGER] Berhasil memulihkan ${parsed.length} baris data telemetri dari cadangan browser.`);
+        }
+      }
+    } catch (e) {
+      console.error("Gagal memulihkan cadangan:", e);
+    }
+  };
+
+  // Protection against accidental page close/refresh when recording or having unsaved data
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isRecording || recordCount > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isRecording, recordCount]);
+
+  // Load archive list on mount
+  useEffect(() => {
+    fetchArchiveList();
+  }, []);
+
+  // Check existing local storage backup on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("katana_telemetry_backup");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setHasBackup(true);
+          setBackupCount(parsed.length);
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  // Summary statistics for session
+  const getSessionMetrics = () => {
+    const list = recordedDataRef.current;
+    if (list.length === 0) return null;
+
+    const frontVals = list
+      .map((r) => (typeof r.frontCm === "number" ? r.frontCm : parseFloat(r.frontCm as string)))
+      .filter((v) => !isNaN(v) && v > 0);
+    const avgFront = frontVals.length > 0 ? (frontVals.reduce((a, b) => a + b, 0) / frontVals.length).toFixed(1) : "-";
+
+    const tiltVals = list
+      .map((r) => (typeof r.tiltDeg === "number" ? r.tiltDeg : parseFloat(r.tiltDeg as string)))
+      .filter((v) => !isNaN(v));
+    const maxTilt = tiltVals.length > 0 ? Math.max(...tiltVals).toFixed(1) : "-";
+
+    const hazardTriggers = list.filter((r) => r.hazardCode > 0).length;
+
+    return {
+      total: list.length,
+      avgFront,
+      maxTilt,
+      hazardTriggers
+    };
+  };
+
+  const downloadCsv = async () => {
+    if (recordedDataRef.current.length === 0) {
+      alert("Belum ada data rekaman untuk diunduh. Klik 'Mulai Rekam' terlebih dahulu.");
+      return;
+    }
+
+    const { csvString, filename } = generateCsvString();
+    triggerBrowserDownload(csvString, filename);
+    await saveToArchive(csvString, filename);
+    addLog(`[SISTEM] File dataset ${filename} (${recordedDataRef.current.length} baris) berhasil diunduh dan disimpan ke arsip.`);
   };
 
   const copyTsv = () => {
@@ -1032,23 +1140,21 @@ export default function KatanaDashboard() {
     addLog(`[SISTEM] File JSON dataset ${filename} berhasil diunduh.`);
   };
 
-  // Periodic recording during Demo Mode when disconnected
+  // Continuous periodic recording when offline or watchdog keep-alive when online
   useEffect(() => {
-    if (!isDemoMode || isConnected || !isRecording) return;
+    if (!isRecording) return;
     const interval = setInterval(() => {
-      recordDataPoint({
-        frontCm: data.frontCm !== null ? data.frontCm : "",
-        downCm: data.downCm !== null ? data.downCm : "",
-        tiltDeg: data.tiltDeg !== null ? data.tiltDeg : "",
-        waterVal: data.waterVal !== null ? data.waterVal : "",
-        state: data.state,
-        motor: data.motor,
-        buzzer: data.buzzer,
-        source: "DEMO_UI"
-      });
+      const now = Date.now();
+      if (!isConnected) {
+        recordCurrentSnapshot("SIMULASI");
+      } else {
+        if (now - lastSerialDataTimeRef.current > 1200) {
+          recordCurrentSnapshot("RIIL");
+        }
+      }
     }, 500);
     return () => clearInterval(interval);
-  }, [isDemoMode, isConnected, isRecording, data]);
+  }, [isRecording, isConnected, isDemoMode, data]);
 
   // Pindai ulang port serial USB yang tersedia
   const refreshPorts = async () => {
@@ -1312,6 +1418,7 @@ export default function KatanaDashboard() {
         return next;
       });
 
+      lastSerialDataTimeRef.current = Date.now();
       if (isRecordingRef.current) {
         const cur = dataRef.current;
         recordDataPoint({
@@ -2794,6 +2901,90 @@ export default function KatanaDashboard() {
                     </button>
                   </div>
                 )}
+
+                {lastSavedArchivePath && (
+                  <div className="flex items-center justify-between p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs">
+                    <div className="flex items-center gap-1.5 font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>[TERSIMPAN] {lastSavedArchivePath}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setLastSavedArchivePath(null)}
+                      className="text-[10px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Local Folder Archive (katana/archive) */}
+                <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-zinc-800 dark:text-zinc-200">
+                      <FolderArchive className="w-3.5 h-3.5 text-zinc-500" />
+                      <span>{t.archiveSectionTitle}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-mono text-zinc-500">
+                        {archivedFiles.length} file
+                      </span>
+                      <button
+                        type="button"
+                        onClick={fetchArchiveList}
+                        title={t.archiveRefresh}
+                        className="w-5 h-5 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-white rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 transition-all cursor-pointer"
+                      >
+                        <RefreshCw className={`w-2.5 h-2.5 ${isLoadingArchive ? "animate-spin" : ""}`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {archivedFiles.length === 0 ? (
+                    <div className="py-2 text-center text-[10px] text-zinc-400 font-mono">
+                      {t.archiveEmpty}
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-0.5">
+                      {archivedFiles.map((file) => (
+                        <div
+                          key={file.name}
+                          className="flex items-center justify-between p-1.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded text-xs gap-1.5"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="font-mono text-[10px] font-bold text-zinc-800 dark:text-zinc-200 truncate" title={file.name}>
+                              {file.name}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[9px] text-zinc-400 font-mono">
+                              <span>{file.rowCount} baris</span>
+                              <span>•</span>
+                              <span>{file.sizeKb} KB</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <a
+                              href={file.downloadUrl}
+                              download={file.name}
+                              title={t.archiveDownload}
+                              className="h-5 px-1.5 flex items-center gap-1 text-[9px] font-bold bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-950 rounded transition-all cursor-pointer"
+                            >
+                              <Download className="w-2.5 h-2.5" />
+                              <span>{t.archiveDownload}</span>
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => deleteArchiveFile(file.name)}
+                              title={t.archiveDelete}
+                              className="w-5 h-5 flex items-center justify-center text-zinc-400 hover:text-rose-600 rounded border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all cursor-pointer"
+                            >
+                              <Trash2 className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Live Serial Console */}
@@ -3245,6 +3436,11 @@ export default function KatanaDashboard() {
                   <span className="text-[11px] font-mono text-zinc-500">
                     {recordCount} {t.recordedCount}
                   </span>
+                  {lastSavedArchivePath && (
+                    <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30 truncate max-w-[220px]" title={lastSavedArchivePath}>
+                      [TERSIMPAN] {lastSavedArchivePath}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
