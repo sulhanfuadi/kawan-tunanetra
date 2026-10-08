@@ -803,41 +803,44 @@ bool pulseWindow(unsigned long phase, unsigned long startMs, unsigned long endMs
   return phase >= startMs && phase < endMs;
 }
 
-// Menghasilkan nilai PWM getaran motor (0 = Mati, 210 - 255 = Kekuatan Penuh Bertenaga dengan Variasi Tegas)
+// Menghasilkan nilai PWM getaran motor: 100% TEGANGAN PENUH (PWM 255) PADA SEMUA KASUS AKTIF
+// Diferensiasi murni diatur lewat pola ritme, durasi sentakan inersia, dan jeda antar-getar agar getaran terasa paling kencang & bertenaga
 byte getVibrationPwm(AlertState state, unsigned long now) {
   switch (state) {
     case OBJECT_LOW: {
-      // Jarak Jauh (60-100cm): Pulsa bertenaga sedang-tinggi (PWM 210), periode 500ms (160ms getar, 340ms jeda)
-      // Karakter: "Sentilan" mantap berjarak
-      bool on = (now % 500UL) < 160UL;
-      return on ? 210 : 0;
+      // Jarak Jauh (60-100cm): 1 Sentakan Kencang Penuh (PWM 255) tiap 600ms (200ms getar, 400ms jeda)
+      // Memberi waktu motor berputar ke RPM maksimal lalu mati sejenak
+      bool on = (now % 600UL) < 200UL;
+      return on ? 255 : 0;
     }
 
     case OBJECT_MEDIUM: {
-      // Jarak Sedang (30-60cm): Denyut cepat rapat bertenaga tinggi (PWM 235), periode 240ms (140ms getar, 100ms jeda)
-      // Karakter: Ritme metronom cepat bertempo konstan
-      bool on = (now % 240UL) < 140UL;
-      return on ? 235 : 0;
+      // Jarak Sedang (30-60cm): Denyut rapat bertenaga penuh (PWM 255), periode 300ms (190ms getar, 110ms jeda)
+      // Motor bergetar sangat intens dengan ritme ketukan cepat konstan
+      bool on = (now % 300UL) < 190UL;
+      return on ? 255 : 0;
     }
 
     case OBJECT_NEAR:
-      // Jarak Sangat Dekat (<30cm): Tenaga MAKSIMAL MUTLAK 100% (PWM 255) KONTINU tanpa jeda
-      // Karakter: Dengung keras tanpa henti (alarm benturan darurat)
+      // Jarak Sangat Dekat (<30cm): Getaran MAKSIMAL MUTLAK 100% (PWM 255) KONTINU tanpa jeda mati
+      // RPM motor dipertahankan di batas tertinggi secara permanen
       return 255;
 
     case WATER_ALERT: {
-      // Genangan Air / Basah: 2 Denyut Panjang Mantap Bergelombang (PWM 245)
-      // Karakter: "Zzzzzzt... Zzzzzzt..." khas permukaan licin (siklus 950ms: 380ms getar, 120ms jeda, 380ms getar, 70ms jeda)
-      unsigned long p = now % 950UL;
-      bool on = pulseWindow(p, 0, 380) || pulseWindow(p, 500, 880);
-      return on ? 245 : 0;
+      // Genangan Air / Basah: 2 Hentakan Panjang Keras (PWM 255)
+      // Siklus 1100ms: 450ms getar penuh -> 120ms jeda -> 450ms getar penuh -> 80ms jeda
+      // Gelombang getaran berat & panjang khas tanda permukaan licin/basah
+      unsigned long p = now % 1100UL;
+      bool on = pulseWindow(p, 0, 450) || pulseWindow(p, 570, 1020);
+      return on ? 255 : 0;
     }
 
     case DROP_ALERT: {
-      // Tepi Turunan / Lubang: 3 Hentakan Cepat Agresif MAKSIMAL (PWM 255) lalu JEDA PANJANG
-      // Karakter: "DEG - DEG - DEG ..... DEG - DEG - DEG" (siklus 900ms: 3x hentakan 130ms, jeda antar-hentak 60ms, jeda akhir 390ms)
-      unsigned long p = now % 900UL;
-      bool on = pulseWindow(p, 0, 130) || pulseWindow(p, 190, 320) || pulseWindow(p, 380, 510);
+      // Tepi Turunan / Lubang: 3 Hentakan Hantam Keras Agresif (PWM 255) lalu JEDA PANJANG
+      // Siklus 950ms: 3x hentakan 160ms (jeda antar-hentak 50ms) -> jeda hening 370ms
+      // Efek sentakan tripel tajam "DEG - DEG - DEG ..... DEG - DEG - DEG"
+      unsigned long p = now % 950UL;
+      bool on = pulseWindow(p, 0, 160) || pulseWindow(p, 210, 370) || pulseWindow(p, 420, 580);
       return on ? 255 : 0;
     }
 

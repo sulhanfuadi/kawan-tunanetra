@@ -731,8 +731,8 @@ void loop() {
       // Prioritas 1: Bahaya Turunan / Lubang (> 15cm lebih dalam dari lantai)
       if (downConn && dropDelta > 15.0) {
         // Hentakan agresif maksimal: PWM 255 (3 denyut cepat)
-        unsigned long p = millis() % 900UL;
-        bool v = (p < 130) || (p >= 190 && p < 320) || (p >= 380 && p < 510);
+        unsigned long p = millis() % 950UL;
+        bool v = (p < 160) || (p >= 210 && p < 370) || (p >= 420 && p < 580);
         analogWrite(PIN_MOTOR, v ? 255 : 0);
         bool b = ((millis() / 150) % 2 == 0);
         digitalWrite(PIN_BUZZER, b ? HIGH : LOW);
@@ -747,26 +747,26 @@ void loop() {
         digitalWrite(PIN_BUZZER, b ? HIGH : LOW);
         Serial.print(F("[KATANA LIVE] BAHAYA DEKAT! Rintangan: "));
         Serial.print(dFront, 1);
-        Serial.println(F(" cm (Motor MAKSIMAL 255 + Beep Cepat)"));
+        Serial.println(F(" cm (Motor MAKSIMAL 255 Kontinu + Beep Cepat)"));
       }
       // Prioritas 3: Rintangan Sedang (40cm - 90cm)
       else if (frontConn && dFront < 90.0) {
-        bool v = ((millis() % 240UL) < 140UL);
-        analogWrite(PIN_MOTOR, v ? 235 : 0); // Tenaga Tinggi PWM 235
+        bool v = ((millis() % 300UL) < 190UL);
+        analogWrite(PIN_MOTOR, v ? 255 : 0); // Tenaga Maksimal PWM 255 (Denyut Cepat)
         bool b = ((millis() / 250) % 2 == 0);
         digitalWrite(PIN_BUZZER, b ? HIGH : LOW);
         Serial.print(F("[KATANA LIVE] PERINGATAN! Rintangan: "));
         Serial.print(dFront, 1);
-        Serial.println(F(" cm (Getar Tegas 235 + Beep Sedang)"));
+        Serial.println(F(" cm (Getar Penuh 255 + Beep Sedang)"));
       }
       // Prioritas 4: Rintangan Jauh (90cm - 150cm)
       else if (frontConn && dFront < 150.0) {
-        bool v = ((millis() % 500UL) < 160UL);
-        analogWrite(PIN_MOTOR, v ? 210 : 0); // Tenaga Sedang-Tinggi PWM 210
+        bool v = ((millis() % 600UL) < 200UL);
+        analogWrite(PIN_MOTOR, v ? 255 : 0); // Tenaga Maksimal PWM 255 (Sentakan Berjarak)
         digitalWrite(PIN_BUZZER, LOW); // Hening
         Serial.print(F("[KATANA LIVE] Waspada Jauh: Rintangan "));
         Serial.print(dFront, 1);
-        Serial.println(F(" cm (Getar Tegas 210)"));
+        Serial.println(F(" cm (Getar Penuh 255 Berjarak)"));
       }
       // Kondisi Aman (Jalan Bersih / Sensor Lepas)
       else {

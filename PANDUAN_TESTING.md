@@ -75,7 +75,7 @@ Kondisi di mana ujung bawah tongkat menyentuh genangan air, kubangan, atau permu
 - **Pengujian Fisik Riil**: Sentuhkan pelat kisi-kisi sensor air pin A0 ke air atau tisu basah (nilai ADC > 400).
 - **Simulasi Serial / Dashboard**: Ketik `WET` atau `WATER 850` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] 2 Denyut Panjang Mantap Bergelombang bertenaga tinggi (PWM 245) dengan ritme gelombang khas permukaan licin (`Zzzzzzt... Zzzzzzt...`).
+  - **Motor (D5)**: [AKTIF] 2 Hentakan Panjang Keras MAKSIMAL (PWM 255) dengan ritme gelombang berat khas permukaan licin (`Zzzzzzt... Zzzzzzt...`).
   - **Buzzer (D6)**: [MATI] Tetap hening.
 - **Status Telemetri**: `PERMUKAAN_BASAH` (Status Code: `WATER_ALERT`).
 
@@ -101,7 +101,7 @@ Kondisi rintangan terdeteksi dalam jarak jangkauan langkah kaki berikutnya.
 - **Pengujian Fisik Riil**: Posisikan telapak tangan atau penghalang di depan sensor depan pada jarak 45 cm.
 - **Simulasi Serial / Dashboard**: Ketik `FRONT 45` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] Denyut cepat rapat bertenaga tinggi (PWM 235), tempo konstan berulang (`Bzz-Bzz-Bzz`).
+  - **Motor (D5)**: [AKTIF] Denyut rapat bertenaga penuh MAKSIMAL (PWM 255), tempo ketukan cepat konstan berulang (`Bzz-Bzz-Bzz`).
   - **Buzzer (D6)**: [MATI] Tetap hening.
 - **Status Telemetri**: `OBJEK_SEDANG` (Status Code: `OBJECT_MEDIUM`).
 
@@ -114,7 +114,7 @@ Kondisi rintangan mulai terdeteksi di kejauhan agar pengguna bersiap mengambil j
 - **Pengujian Fisik Riil**: Posisikan penghalang di depan sensor depan pada jarak 80 cm.
 - **Simulasi Serial / Dashboard**: Ketik `FRONT 80` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] Pulsa getaran tegas berjarak (PWM 210), jeda santai (`Bzz..... Bzz.....`).
+  - **Motor (D5)**: [AKTIF] 1 Sentakan Kencang Penuh MAKSIMAL (PWM 255) dengan jeda santai (`Bzz..... Bzz.....`).
   - **Buzzer (D6)**: [MATI] Tetap hening.
 - **Status Telemetri**: `OBJEK_WASPADA` (Status Code: `OBJECT_LOW`).
 
