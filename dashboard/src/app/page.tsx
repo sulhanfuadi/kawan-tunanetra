@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Usb,
   Unplug,
@@ -39,10 +39,12 @@ import {
   Circle,
   Play,
   FileSpreadsheet,
-  FolderArchive
+  FolderArchive,
+  BarChart3
 } from "lucide-react";
 import { parseHex } from "../utils/hexParser";
 import { Stk500Flasher } from "../utils/stk500";
+import DataVisualizer from "../components/DataVisualizer";
 
 interface TelemetryData {
   frontConnected: boolean;
@@ -252,6 +254,7 @@ const translations = {
 
     // Tabs & Flasher
     tabMonitoring: "Monitoring Sensor & CAD",
+    tabVisualizer: "Data Visualizer",
     tabSerialConsole: "Serial Terminal & Flasher",
     flasherTitle: "Arduino Nano Web Firmware Flasher (STK500v1)",
     flasherDesc: "Upload file biner .hex langsung dari browser tanpa perlu membuka Arduino IDE",
@@ -420,6 +423,7 @@ const translations = {
 
     // Tabs & Flasher
     tabMonitoring: "Sensor & CAD Monitoring",
+    tabVisualizer: "Data Visualizer",
     tabSerialConsole: "Serial Terminal & Flasher",
     flasherTitle: "Arduino Nano Web Firmware Flasher (STK500v1)",
     flasherDesc: "Flash .hex binary files directly from your browser without opening Arduino IDE",
@@ -514,7 +518,10 @@ export default function KatanaDashboard() {
   const lastSerialDataTimeRef = useRef<number>(0);
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"monitor" | "serial_flash">("monitor");
+  const [activeTab, setActiveTab] = useState<"monitor" | "visualizer" | "serial_flash">("monitor");
+
+  // Rolling buffer for live visualization stream (up to 300 points)
+  const [rollingLiveRecords, setRollingLiveRecords] = useState<TelemetryRecord[]>([]);
 
   // Flasher state
   const [hexFile, setHexFile] = useState<{ name: string; bytes: Uint8Array } | null>(null);
@@ -1155,6 +1162,64 @@ export default function KatanaDashboard() {
     }, 500);
     return () => clearInterval(interval);
   }, [isRecording, isConnected, isDemoMode, data]);
+
+  // Rolling stream for Data Visualizer (up to 300 samples)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const cur = dataRef.current;
+      const now = new Date();
+      const pad = (n: number) => n.toString().padStart(2, "0");
+      const pad3 = (n: number) => n.toString().padStart(3, "0");
+      const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad3(now.getMilliseconds())}`;
+
+      const downNum = cur.downCm !== null ? cur.downCm : null;
+      const deltaDownCm = downNum !== null ? Math.max(0, Math.round(downNum - 30)) : "";
+      const waterNum = cur.waterVal !== null ? cur.waterVal : null;
+      const waterCondition = waterNum !== null ? (waterNum > 400 ? "BASAH" : "KERING") : "TIDAK_DIKETAHUI";
+      const st = cur.state || "NORMAL";
+      const mot = (cur.motor || "OFF").toUpperCase();
+      const buz = (cur.buzzer || "DIAM").toUpperCase();
+
+      const livePoint: TelemetryRecord = {
+        no: 0,
+        timestamp,
+        elapsedSec: 0,
+        frontCm: cur.frontCm !== null ? cur.frontCm : "",
+        downCm: cur.downCm !== null ? cur.downCm : "",
+        deltaDownCm,
+        tiltDeg: cur.tiltDeg !== null ? cur.tiltDeg : "",
+        waterVal: cur.waterVal !== null ? cur.waterVal : "",
+        waterCondition,
+        waterBinary: waterCondition === "BASAH" ? 1 : 0,
+        state: st,
+        hazardCode: getHazardCode(st),
+        motor: mot,
+        motorBinary: mot === "ON" ? 1 : 0,
+        buzzer: buz,
+        buzzerBinary: buz === "SOS" ? 1 : 0,
+        source: isConnected ? "RIIL" : (isDemoMode ? "SIMULASI" : "STANDBY")
+      };
+
+      setRollingLiveRecords((prev) => {
+        const next = [...prev, livePoint];
+        if (next.length > 300) next.shift();
+        return next.map((item, idx) => ({
+          ...item,
+          no: idx + 1,
+          elapsedSec: parseFloat((idx * 0.5).toFixed(1))
+        }));
+      });
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [isConnected, isDemoMode]);
+
+  const visualizerLiveRecords = useMemo(() => {
+    if (recordCount > 0 || isRecording) {
+      return [...recordedDataRef.current];
+    }
+    return rollingLiveRecords;
+  }, [recordCount, isRecording, rollingLiveRecords]);
 
   // Pindai ulang port serial USB yang tersedia
   const refreshPorts = async () => {
@@ -1955,6 +2020,24 @@ export default function KatanaDashboard() {
           >
             <Gauge className="w-4 h-4 shrink-0" />
             <span>{t.tabMonitoring}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("visualizer")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer select-none ${
+              activeTab === "visualizer"
+                ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 shadow-sm border border-transparent"
+                : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 hover:text-zinc-950 dark:hover:text-white"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4 shrink-0" />
+            <span>{t.tabVisualizer}</span>
+            {recordCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                {recordCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -3218,7 +3301,20 @@ export default function KatanaDashboard() {
           </>
         )}
 
-        {/* TAB 2: DEDICATED SERIAL TERMINAL, IN-BROWSER FLASHER & RAW ACTIVITY STREAM */}
+        {/* TAB 2: DATA VISUALIZER (MULTI-CHANNEL TELEMETRY CHARTS, METRICS & LOG IMPORT) */}
+        {activeTab === "visualizer" && (
+          <DataVisualizer
+            liveRecords={visualizerLiveRecords}
+            isRecording={isRecording}
+            startRecording={startRecording}
+            stopRecording={stopRecording}
+            archivedFiles={archivedFiles}
+            t={t}
+            isDark={theme === "dark"}
+          />
+        )}
+
+        {/* TAB 3: DEDICATED SERIAL TERMINAL, IN-BROWSER FLASHER & RAW ACTIVITY STREAM */}
         {activeTab === "serial_flash" && (
           <div className="space-y-4">
             
