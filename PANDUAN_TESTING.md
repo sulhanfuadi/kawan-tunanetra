@@ -153,6 +153,8 @@ Gunakan daftar perintah berikut langsung di Serial Monitor:
 
 | Perintah Serial | Sasaran Kasus / Uji | Respon yang Diharapkan |
 |---|---|---|
+| `CALIB` | Kalibrasi Posisi Tegak (0°) | Kunci sudut saat ini menjadi 0.0° [TEGAK], simpan ke EEPROM |
+| `TEST IMU` | Uji Sensor MPU6050 & Sudut | Tampilkan nilai 3D Accel (X,Y,Z), acuan tegak, dan sudut relatif |
 | `FALL` | Kasus 1: Tongkat Jatuh | Buzzer alarm SOS Morse aktif, Motor mati |
 | `DROP` | Kasus 2: Tepi Turunan | Motor 3 denyut taktil berulang, Buzzer mati |
 | `WET` | Kasus 3: Genangan Air | Motor 2 denyut panjang berulang, Buzzer mati |
@@ -175,8 +177,9 @@ Gunakan daftar perintah berikut langsung di Serial Monitor:
 
 Gunakan tabel ini saat melakukan uji coba prototipe di lapangan:
 
-- [ ] **Uji 1**: Respon Morse SOS aktif saat dimiringkan > 60° selama 2 detik (`FALL`).
-- [ ] **Uji 2**: Motor menghasilkan 3 denyut saat dihadapkan pada bibir meja / turunan (`DROP`).
+- [ ] **Uji 0 (Kalibrasi)**: Posisikan tongkat berdiri tegak normal (seperti di Pic 3), ketik `CALIB`. Serial Monitor mencatat vektor acuan ke EEPROM dan sudut terkunci ke `0.0° [TEGAK]`.
+- [ ] **Uji 1**: Respon Morse SOS aktif saat tongkat roboh ke lantai mendatar (> 60°) selama 2 detik (`FALL`).
+- [ ] **Uji 2**: Motor menghasilkan 3 denyut saat dihadapkan pada bibir meja / turunan (`DROP`). Tidak terblokir lagi oleh sudut kemiringan normal tongkat.
 - [ ] **Uji 3**: Motor menghasilkan 2 denyut panjang saat modul air mendeteksi cairan (`WET`).
 - [ ] **Uji 4**: Motor bergetar kontinu saat objek berada pada jarak < 30 cm (`NEAR`).
 - [ ] **Uji 5**: Motor bergetar cepat saat objek berada pada jarak 30 - 60 cm (`FRONT 45`).

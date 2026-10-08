@@ -293,20 +293,29 @@ void testIMUSensor() {
       float ay = rawY / 16384.0;
       float az = rawZ / 16384.0;
 
-      // Hitung sudut kemiringan (tilt) dari vektor gravitasi Z
+      // Hitung sudut kemiringan (tilt) terhadap posisi tegak normal tongkat (acuan ~45° vertikal Y/Z)
       float mag = sqrt(ax*ax + ay*ay + az*az);
-      float tilt = 0.0;
+      float tiltNormal = 0.0;
+      float tiltRawZ = 0.0;
       if (mag > 0.05) {
+        float nx = ax / mag;
+        float ny = ay / mag;
+        float nz = az / mag;
+        // Acuan posisi tegak normal tongkat kataba (pemasangan vertikal pcb ~45° Y & Z)
+        float dot = constrain((ny * 0.7071) + (nz * 0.7071), -1.0, 1.0);
+        tiltNormal = acos(dot) * 180.0 / 3.14159;
+
         float r = fabs(az) / mag;
         if (r > 1.0) r = 1.0;
-        tilt = acos(r) * 180.0 / 3.14159;
+        tiltRawZ = acos(r) * 180.0 / 3.14159;
       }
 
-      Serial.print(F(" | DATA DITERIMA: Accel X=")); Serial.print(ax, 2);
+      Serial.print(F(" | DATA: X=")); Serial.print(ax, 2);
       Serial.print(F("g, Y=")); Serial.print(ay, 2);
       Serial.print(F("g, Z=")); Serial.print(az, 2);
-      Serial.print(F("g | Sudut Kemiringan: ")); Serial.print(tilt, 1);
-      Serial.println(F("°"));
+      Serial.print(F("g | Kemiringan Tegak: ")); Serial.print(tiltNormal, 1);
+      Serial.print(F("° (Raw Z: ")); Serial.print(tiltRawZ, 1);
+      Serial.println(F("°)"));
     } else {
       Serial.println(F(" | Gagal meminta data register!"));
     }

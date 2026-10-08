@@ -2435,13 +2435,25 @@ export default function KatanaDashboard() {
                   </span>
                   <span className="text-xs font-mono font-semibold text-zinc-400">° {t.unitDegrees}</span>
                 </div>
-                <span className="text-[10px] font-mono font-bold text-zinc-500">
-                  {!data.mpuConnected
-                    ? t.bracketOffline
-                    : data.tiltDeg! > 60
-                    ? t.bracketFallen
-                    : t.bracketUpright}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {data.mpuConnected && (
+                    <button
+                      type="button"
+                      onClick={() => sendSerial("CALIB")}
+                      title="Kalibrasi posisi tegak tongkat ke 0.0° saat berdiri tegak"
+                      className="px-2 py-0.5 text-[9px] font-mono font-bold rounded bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 transition-colors cursor-pointer"
+                    >
+                      Kalibrasi 0°
+                    </button>
+                  )}
+                  <span className="text-[10px] font-mono font-bold text-zinc-500">
+                    {!data.mpuConnected
+                      ? t.bracketOffline
+                      : data.tiltDeg! > 60
+                      ? t.bracketFallen
+                      : t.bracketUpright}
+                  </span>
+                </div>
               </div>
 
               {/* Visual Tilt Meter */}
@@ -3089,6 +3101,14 @@ export default function KatanaDashboard() {
                     className="px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 font-mono text-[10px] font-bold cursor-pointer"
                   >
                     {t.normalPreset}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => sendSerial("CALIB")}
+                    title="Kirim perintah CALIB untuk mengunci posisi tegak ke 0.0°"
+                    className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 font-mono text-[10px] font-bold cursor-pointer"
+                  >
+                    KALIBRASI 0°
                   </button>
                 </div>
 
