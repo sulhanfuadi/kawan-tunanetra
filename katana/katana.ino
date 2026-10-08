@@ -100,6 +100,8 @@ unsigned long overrideBuzzerUntilMs = 0;
 
 void processSerialCommand(String cmd);
 void checkSerialInput();
+void driveBuzzer(bool on);
+void selfTest();
 
 byte mpuAddr = 0x68;              // Alamat I2C MPU6050 dinamis (0x68 atau 0x69)
 bool frontPinsInverted = false;    // Status apakah pin Trig/Echo depan tertukar
