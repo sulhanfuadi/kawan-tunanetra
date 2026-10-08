@@ -434,6 +434,32 @@ export default function DataVisualizer({
     URL.revokeObjectURL(url);
   };
 
+  // Pixel-perfect SVG cursor coordinate transformation using native CTM
+  const getSvgCursorX = (
+    svg: SVGSVGElement,
+    clientX: number,
+    clientY: number,
+    fallbackWidth: number
+  ): number => {
+    if (svg && svg.createSVGPoint && svg.getScreenCTM) {
+      try {
+        const pt = svg.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        const ctm = svg.getScreenCTM();
+        if (ctm) {
+          const svgP = pt.matrixTransform(ctm.inverse());
+          return svgP.x;
+        }
+      } catch (e) {}
+    }
+    const rect = svg.getBoundingClientRect();
+    if (rect.width > 0) {
+      return ((clientX - rect.left) / rect.width) * fallbackWidth;
+    }
+    return 0;
+  };
+
   // SVG Chart Helper
   const renderSvgLineChart = (
     data: TelemetryRecord[],
@@ -513,11 +539,10 @@ export default function DataVisualizer({
           viewBox={`0 0 ${width} ${height}`}
           className="w-full h-44 overflow-visible"
           onMouseMove={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const normX = (mouseX / rect.width) * width;
-            if (normX >= padLeft && normX <= width - padRight) {
-              const rel = (normX - padLeft) / plotW;
+            const normX = getSvgCursorX(e.currentTarget, e.clientX, e.clientY, width);
+            if (plotW > 0 && data.length > 1) {
+              const clampedX = Math.max(padLeft, Math.min(width - padRight, normX));
+              const rel = (clampedX - padLeft) / plotW;
               const idx = Math.round(rel * (data.length - 1));
               setHoveredPointIdx(Math.max(0, Math.min(data.length - 1, idx)));
             }
@@ -703,8 +728,8 @@ export default function DataVisualizer({
 
   // Dedicated Stepped SVG Chart for System Hazard State Transitions
   const renderSvgStateChart = (data: TelemetryRecord[]) => {
-    const width = 800;
-    const height = 210;
+    const width = 1200;
+    const height = 190;
     const padTop = 20;
     const padBottom = 26;
     const padLeft = 82;
@@ -762,11 +787,10 @@ export default function DataVisualizer({
           viewBox={`0 0 ${width} ${height}`}
           className="w-full h-48 overflow-visible"
           onMouseMove={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const normX = (mouseX / rect.width) * width;
-            if (normX >= padLeft && normX <= width - padRight) {
-              const rel = (normX - padLeft) / plotW;
+            const normX = getSvgCursorX(e.currentTarget, e.clientX, e.clientY, width);
+            if (plotW > 0 && data.length > 1) {
+              const clampedX = Math.max(padLeft, Math.min(width - padRight, normX));
+              const rel = (clampedX - padLeft) / plotW;
               const idx = Math.round(rel * (data.length - 1));
               setHoveredPointIdx(Math.max(0, Math.min(data.length - 1, idx)));
             }
