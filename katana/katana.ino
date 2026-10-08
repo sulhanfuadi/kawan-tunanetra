@@ -27,7 +27,7 @@ const byte PIN_DOWN_ECHO  = 8;    // HC-SR04 Bawah Echo
 const byte PIN_DOWN_TRIG  = 9;    // HC-SR04 Bawah Trig
 const byte PIN_WATER_RAW  = A0;   // Sensor Air Analog (A0)
 
-const byte MPU_ADDR = 0x68;       // Alamat I2C MPU6050 (A4=SDA, A5=SCL)
+const byte DEFAULT_MPU_ADDR = 0x68;   // Alamat I2C MPU6050 default (A4=SDA, A5=SCL)
 
 // ================= PARAMETER AMBANG =================
 const int FRONT_LOW_CM        = 100;
@@ -92,6 +92,8 @@ String serialBuffer = "";
 bool overrideMotor = false;
 byte manualMotorPwm = 0;
 unsigned long overrideMotorUntilMs = 0;
+AlertState testPatternState = NORMAL;
+unsigned long overridePatternUntilMs = 0;
 
 bool overrideBuzzer = false;
 bool manualBuzzerState = false;
@@ -99,8 +101,10 @@ unsigned long overrideBuzzerUntilMs = 0;
 
 void processSerialCommand(String cmd);
 void checkSerialInput();
+void driveBuzzer(bool on);
+void selfTest();
 
-byte mpuAddr = 0x68;              // Alamat I2C MPU6050 dinamis (0x68 atau 0x69)
+byte mpuAddr = DEFAULT_MPU_ADDR;   // Alamat I2C MPU6050 dinamis (0x68 atau 0x69)
 bool frontPinsInverted = false;    // Status apakah pin Trig/Echo depan tertukar
 bool downPinsInverted = false;     // Status apakah pin Trig/Echo bawah tertukar
 
@@ -429,7 +433,12 @@ void processSerialCommand(String cmd) {
     Serial.println(F("  WATER <val>  -> Sensor air 0-1023 (misal: WATER 750)"));
     Serial.println(F(""));
     Serial.println(F("Uji Aktuator Fisik:"));
-    Serial.println(F("  TEST MOTOR    -> Getarkan motor selama 1.5 detik (Pin D5)"));
+    Serial.println(F("  TEST MOTOR    -> Getarkan motor maksimal (PWM 255) selama 2 detik (Pin D5)"));
+    Serial.println(F("  TEST VIBE 3   -> Uji pola 3-3-3 (Tepi Turunan/Lubang) selama 4.8 detik"));
+    Serial.println(F("  TEST VIBE 2   -> Uji pola 2-2-2 (Genangan Air/Basah) selama 5.4 detik"));
+    Serial.println(F("  TEST VIBE 1   -> Uji pola tek 1-1 (Jarak Jauh 60-100cm) selama 4 detik"));
+    Serial.println(F("  TEST VIBE MED -> Uji pola cepat rapat (Jarak Sedang 30-60cm) selama 4 detik"));
+    Serial.println(F("  TEST VIBE NEAR-> Uji pola panjer kontinu (Jarak Dekat <30cm) selama 3 detik"));
     Serial.println(F("  MOTOR ON/OFF  -> Nyalakan / matikan motor getar terus-menerus"));
     Serial.println(F("  TEST BUZZER   -> Bunyikan buzzer pola beep selama 1.5 detik (Pin D6)"));
     Serial.println(F("  BUZZER ON/OFF -> Nyalakan / matikan buzzer terus-menerus"));
@@ -692,21 +701,64 @@ void processSerialCommand(String cmd) {
 
   // ================= UJI SIMULASI & TRIGGER AKTUATOR =================
   if (upper == "TEST MOTOR" || upper == "TEST:MOTOR" || upper == "VIBE" || upper == "GETAR") {
-    overrideMotorUntilMs = millis() + 1500;
-    manualMotorPwm = 220;
-    Serial.println(F("[UJI AKTUATOR] Motor Getar AKTIF selama 1.5 detik (PWM 220 di Pin D5)..."));
+    overridePatternUntilMs = 0;
+    overrideMotorUntilMs = millis() + 2000;
+    manualMotorPwm = 255;
+    Serial.println(F("[UJI AKTUATOR] Motor Getar AKTIF Tenaga Penuh (PWM 255) selama 2.0 detik di Pin D5..."));
+    return;
+  }
+
+  if (upper == "TEST VIBE 3" || upper == "TEST VIBE:3" || upper == "TEST VIBE DROP" || upper == "VIBE 3" || upper == "GETAR 3") {
+    overrideMotorUntilMs = 0;
+    testPatternState = DROP_ALERT;
+    overridePatternUntilMs = millis() + 4800; // 3 siklus lengkap (4.8 detik)
+    Serial.println(F("[UJI POLA GETAR] Menguji Pola Burst 3-3-3 (Tepi Turunan/Lubang) Tenaga Penuh (PWM 255) selama 4.8 detik..."));
+    return;
+  }
+
+  if (upper == "TEST VIBE 2" || upper == "TEST VIBE:2" || upper == "TEST VIBE WATER" || upper == "VIBE 2" || upper == "GETAR 2") {
+    overrideMotorUntilMs = 0;
+    testPatternState = WATER_ALERT;
+    overridePatternUntilMs = millis() + 5400; // 3 siklus lengkap (5.4 detik)
+    Serial.println(F("[UJI POLA GETAR] Menguji Pola Ganda 2-2-2 (Genangan Air/Basah) Tenaga Penuh (PWM 255) selama 5.4 detik..."));
+    return;
+  }
+
+  if (upper == "TEST VIBE 1" || upper == "TEST VIBE:1" || upper == "TEST VIBE LOW" || upper == "VIBE 1" || upper == "GETAR 1") {
+    overrideMotorUntilMs = 0;
+    testPatternState = OBJECT_LOW;
+    overridePatternUntilMs = millis() + 4000; // 4 siklus (4.0 detik)
+    Serial.println(F("[UJI POLA GETAR] Menguji Pola Tunggal Tek 1-1 (Jarak Jauh 60-100cm) Tenaga Penuh (PWM 255) selama 4.0 detik..."));
+    return;
+  }
+
+  if (upper == "TEST VIBE MED" || upper == "TEST VIBE:MED" || upper == "VIBE MED") {
+    overrideMotorUntilMs = 0;
+    testPatternState = OBJECT_MEDIUM;
+    overridePatternUntilMs = millis() + 4000;
+    Serial.println(F("[UJI POLA GETAR] Menguji Pola Cepat & Rapat (Jarak Sedang 30-60cm) Tenaga Penuh (PWM 255) selama 4.0 detik..."));
+    return;
+  }
+
+  if (upper == "TEST VIBE NEAR" || upper == "TEST VIBE:NEAR" || upper == "TEST VIBE PANJER" || upper == "VIBE NEAR") {
+    overrideMotorUntilMs = 0;
+    testPatternState = OBJECT_NEAR;
+    overridePatternUntilMs = millis() + 3000;
+    Serial.println(F("[UJI POLA GETAR] Menguji Pola Panjer Kontinu (Jarak Dekat <30cm) Tenaga Penuh (PWM 255) selama 3.0 detik..."));
     return;
   }
 
   if (upper == "MOTOR ON" || upper == "MOTOR:ON") {
+    overridePatternUntilMs = 0;
     overrideMotor = true;
-    manualMotorPwm = 220;
+    manualMotorPwm = 255;
     overrideMotorUntilMs = 0;
-    Serial.println(F("[UJI AKTUATOR] Motor Getar DINYALAKAN (Ketik MOTOR OFF untuk mematikan)."));
+    Serial.println(F("[UJI AKTUATOR] Motor Getar DINYALAKAN Penuh (PWM 255) (Ketik MOTOR OFF untuk mematikan)."));
     return;
   }
 
   if (upper == "MOTOR OFF" || upper == "MOTOR:OFF") {
+    overridePatternUntilMs = 0;
     overrideMotor = false;
     manualMotorPwm = 0;
     overrideMotorUntilMs = 0;
@@ -750,6 +802,7 @@ void processSerialCommand(String cmd) {
     overrideMotor = false;
     manualMotorPwm = 0;
     overrideMotorUntilMs = 0;
+    overridePatternUntilMs = 0;
     analogWrite(PIN_VIBRATION, 0);
 
     overrideBuzzer = false;
@@ -762,6 +815,7 @@ void processSerialCommand(String cmd) {
 
   if (upper == "NORMAL" || upper == "RESET" || upper == "DEMO:NORMAL") {
     demoMode = false;
+    overridePatternUntilMs = 0;
     simFrontCm = 120.0;
     simDownCm = downBaselineCm;
     simTiltDeg = 12.0;
@@ -958,40 +1012,29 @@ bool pulseWindow(unsigned long phase, unsigned long startMs, unsigned long endMs
 // Diferensiasi murni diatur lewat pola ritme, durasi sentakan inersia, dan jeda antar-getar agar getaran terasa paling kencang & bertenaga
 byte getVibrationPwm(AlertState state, unsigned long now) {
   switch (state) {
-    case OBJECT_LOW: {
-      // Jarak Jauh (60-100cm): 1 Sentakan Kencang Penuh (PWM 255) tiap 600ms (200ms getar, 400ms jeda)
-      // Memberi waktu motor berputar ke RPM maksimal lalu mati sejenak
-      bool on = (now % 600UL) < 200UL;
-      return on ? 255 : 0;
-    }
+    case OBJECT_LOW:
+      // Jarak Jauh (60-100cm): Pulsa lebih tegas, jeda diperpendek (600ms siklus: 150ms getar, 450ms jeda)
+      return ((now % 600UL) < 150UL) ? 255 : 0;
 
-    case OBJECT_MEDIUM: {
-      // Jarak Sedang (30-60cm): Denyut rapat bertenaga penuh (PWM 255), periode 300ms (190ms getar, 110ms jeda)
-      // Motor bergetar sangat intens dengan ritme ketukan cepat konstan
-      bool on = (now % 300UL) < 190UL;
-      return on ? 255 : 0;
-    }
+    case OBJECT_MEDIUM:
+      // Jarak Sedang (30-60cm): Denyut cepat & rapat (260ms siklus: 140ms getar, 120ms jeda)
+      return ((now % 260UL) < 140UL) ? 255 : 0;
 
     case OBJECT_NEAR:
-      // Jarak Sangat Dekat (<30cm): Getaran MAKSIMAL MUTLAK 100% (PWM 255) KONTINU tanpa jeda mati
-      // RPM motor dipertahankan di batas tertinggi secara permanen
+      // Jarak Sangat Dekat (<30cm): Getaran MAKSIMAL KONTINU 100% tanpa henti
       return 255;
 
     case WATER_ALERT: {
-      // Genangan Air / Basah: 2 Hentakan Panjang Keras (PWM 255)
-      // Siklus 1100ms: 450ms getar penuh -> 120ms jeda -> 450ms getar penuh -> 80ms jeda
-      // Gelombang getaran berat & panjang khas tanda permukaan licin/basah
+      // Genangan Air / Basah: 2 Denyut Mantap & Cepat (siklus 1100ms: 400ms getar, 150ms jeda, 400ms getar, 150ms jeda)
       unsigned long p = now % 1100UL;
-      bool on = pulseWindow(p, 0, 450) || pulseWindow(p, 570, 1020);
+      bool on = pulseWindow(p, 0, 400) || pulseWindow(p, 550, 950);
       return on ? 255 : 0;
     }
 
     case DROP_ALERT: {
-      // Tepi Turunan / Lubang: 3 Hentakan Hantam Keras Agresif (PWM 255) lalu JEDA PANJANG
-      // Siklus 950ms: 3x hentakan 160ms (jeda antar-hentak 50ms) -> jeda hening 370ms
-      // Efek sentakan tripel tajam "DEG - DEG - DEG ..... DEG - DEG - DEG"
-      unsigned long p = now % 950UL;
-      bool on = pulseWindow(p, 0, 160) || pulseWindow(p, 210, 370) || pulseWindow(p, 420, 580);
+      // Tepi Turunan / Lubang: 3 Denyut Cepat Menghentak (siklus 850ms)
+      unsigned long p = now % 850UL;
+      bool on = pulseWindow(p, 0, 180) || pulseWindow(p, 260, 440) || pulseWindow(p, 520, 700);
       return on ? 255 : 0;
     }
 
@@ -1047,6 +1090,15 @@ void updateOutputs(AlertState state) {
       analogWrite(PIN_VIBRATION, manualMotorPwm > 0 ? manualMotorPwm : 255);
     } else {
       overrideMotorUntilMs = 0;
+      vibrationOn = false;
+      analogWrite(PIN_VIBRATION, 0);
+    }
+  } else if (overridePatternUntilMs > 0) {
+    if (now < overridePatternUntilMs) {
+      vibrationOn = vibrationPattern(testPatternState, now);
+      analogWrite(PIN_VIBRATION, vibrationOn ? 255 : 0);
+    } else {
+      overridePatternUntilMs = 0;
       vibrationOn = false;
       analogWrite(PIN_VIBRATION, 0);
     }

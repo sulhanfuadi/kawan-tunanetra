@@ -62,7 +62,7 @@ Kondisi di mana ada penurunan permukaan jalan mendadak di depan langkah tunanetr
 - **Pengujian Fisik Riil**: Pegang alat menghadap ke bawah di atas meja (~30 cm), lalu geser keluar bibir meja sehingga sensor menghadap langsung ke lantai ruang yang lebih dalam (> 45 cm).
 - **Simulasi Serial / Dashboard**: Ketik `DROP` atau `DOWN 55` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] 3 Hentakan Cepat Agresif MAKSIMAL (PWM 255) berurutan lalu jeda panjang (`DEG - DEG - DEG ..... DEG - DEG - DEG`). Karakter hentakan ini sangat khas membedakannya dari rintangan depan.
+  - **Motor (D5)**: [AKTIF] 3 denyut getar taktil intensitas tinggi berturutan (160ms getar, 120ms hening, 160ms getar, 120ms hening, 160ms getar per siklus 1.3 detik).
   - **Buzzer (D6)**: [MATI] Tetap hening agar tidak menimbulkan polusi pendengaran bagi pengguna.
 - **Status Telemetri**: `TEPI_TURUNAN` (Status Code: `DROP_ALERT`).
 
@@ -75,7 +75,7 @@ Kondisi di mana ujung bawah tongkat menyentuh genangan air, kubangan, atau permu
 - **Pengujian Fisik Riil**: Sentuhkan pelat kisi-kisi sensor air pin A0 ke air atau tisu basah (nilai ADC > 400).
 - **Simulasi Serial / Dashboard**: Ketik `WET` atau `WATER 850` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] 2 Hentakan Panjang Keras MAKSIMAL (PWM 255) dengan ritme gelombang berat khas permukaan licin (`Zzzzzzt... Zzzzzzt...`).
+  - **Motor (D5)**: [AKTIF] 2 denyut getar panjang khas (500ms getar, 250ms hening, 500ms getar per siklus 1.9 detik).
   - **Buzzer (D6)**: [MATI] Tetap hening.
 - **Status Telemetri**: `PERMUKAAN_BASAH` (Status Code: `WATER_ALERT`).
 
@@ -88,7 +88,7 @@ Kondisi di mana objek atau dinding berada sangat dekat dan berisiko langsung men
 - **Pengujian Fisik Riil**: Dekatkan telapak tangan atau penghalang di depan sensor HC-SR04 depan pada jarak < 30 cm (misal 15 cm).
 - **Simulasi Serial / Dashboard**: Ketik `NEAR` atau `FRONT 15` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] Getaran MAKSIMAL MUTLAK 100% KONTINU (PWM 255) tanpa jeda mati pada pegangan tongkat.
+  - **Motor (D5)**: [AKTIF] Getaran kontinu frekuensi tinggi tanpa henti (PWM 240 pada pegangan).
   - **Buzzer (D6)**: [AKTIF] Bunyi BEEP staccato cepat (100ms ON / 100ms OFF) sebagai alarm audio bahaya tabrakan!
 - **Status Telemetri**: `OBJEK_DEKAT` (Status Code: `OBJECT_NEAR`, Buzzer: `BEEP`).
 
@@ -101,7 +101,7 @@ Kondisi rintangan terdeteksi dalam jarak jangkauan langkah kaki berikutnya.
 - **Pengujian Fisik Riil**: Posisikan telapak tangan atau penghalang di depan sensor depan pada jarak 45 cm.
 - **Simulasi Serial / Dashboard**: Ketik `FRONT 45` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] Denyut rapat bertenaga penuh MAKSIMAL (PWM 255), tempo ketukan cepat konstan berulang (`Bzz-Bzz-Bzz`).
+  - **Motor (D5)**: [AKTIF] Getaran berdenyut cepat (periode 400ms: 120ms bergetar, 280ms jeda).
   - **Buzzer (D6)**: [MATI] Tetap hening.
 - **Status Telemetri**: `OBJEK_SEDANG` (Status Code: `OBJECT_MEDIUM`).
 
@@ -114,7 +114,7 @@ Kondisi rintangan mulai terdeteksi di kejauhan agar pengguna bersiap mengambil j
 - **Pengujian Fisik Riil**: Posisikan penghalang di depan sensor depan pada jarak 80 cm.
 - **Simulasi Serial / Dashboard**: Ketik `FRONT 80` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] 1 Sentakan Kencang Penuh MAKSIMAL (PWM 255) dengan jeda santai (`Bzz..... Bzz.....`).
+  - **Motor (D5)**: [AKTIF] Getaran berdenyut santai / lambat (periode 1000ms: 100ms bergetar, 900ms jeda).
   - **Buzzer (D6)**: [MATI] Tetap hening.
 - **Status Telemetri**: `OBJEK_WASPADA` (Status Code: `OBJECT_LOW`).
 
@@ -156,14 +156,19 @@ Gunakan daftar perintah berikut langsung di Serial Monitor:
 | `CALIB` | Kalibrasi Posisi Tegak (0°) | Kunci sudut saat ini menjadi 0.0° [TEGAK], simpan ke EEPROM |
 | `TEST IMU` | Uji Sensor MPU6050 & Sudut | Tampilkan nilai 3D Accel (X,Y,Z), acuan tegak, dan sudut relatif |
 | `FALL` | Kasus 1: Tongkat Jatuh | Buzzer alarm SOS Morse aktif, Motor mati |
-| `DROP` | Kasus 2: Tepi Turunan | Motor 3 denyut taktil berulang, Buzzer mati |
-| `WET` | Kasus 3: Genangan Air | Motor 2 denyut panjang berulang, Buzzer mati |
-| `NEAR` | Kasus 4: Rintangan Dekat | Motor bergetar kontinu penuh, Buzzer mati |
-| `FRONT 45` | Kasus 5: Rintangan Sedang | Motor bergetar denyut cepat (400ms cadence) |
-| `FRONT 80` | Kasus 6: Rintangan Jauh | Motor bergetar denyut santai (1000ms cadence) |
+| `DROP` | Kasus 2: Tepi Turunan | Motor 3 denyut ("3 3 3") tenaga penuh PWM 255 |
+| `WET` | Kasus 3: Genangan Air | Motor 2 denyut panjang ("2 2 2") tenaga penuh PWM 255 |
+| `NEAR` | Kasus 4: Rintangan Dekat | Motor bergetar panjer kontinu penuh PWM 255 |
+| `FRONT 45` | Kasus 5: Rintangan Sedang | Motor bergetar denyut cepat rapat (siklus 480ms) PWM 255 |
+| `FRONT 80` | Kasus 6: Rintangan Jauh | Motor denyut tunggal berkala ("tek 1 1", siklus 1000ms) PWM 255 |
 | `NORMAL` | Kasus 7: Jalur Aman | Motor dan Buzzer mati total |
 | `DIAG` | Kasus 8: Cek Kabel & Pin | Cetak status koneksi riil ke-4 sensor |
-| `TEST MOTOR` | Hardware Aktuator Motor | Motor D5 aktif bergetar selama 1.5 detik |
+| `TEST VIBE 3` | Uji Haptik Turunan/Lubang | Uji pola denyut 3-3-3 (PWM 255) selama 4.8 detik |
+| `TEST VIBE 2` | Uji Haptik Genangan Air | Uji pola denyut ganda 2-2-2 (PWM 255) selama 5.4 detik |
+| `TEST VIBE 1` | Uji Haptik Jarak Jauh | Uji pola tunggal tek 1-1 (PWM 255) selama 4.0 detik |
+| `TEST VIBE MED` | Uji Haptik Jarak Sedang | Uji pola denyut cepat rapat (PWM 255) selama 4.0 detik |
+| `TEST VIBE NEAR` | Uji Haptik Jarak Dekat | Uji pola getar panjer kontinu (PWM 255) selama 3.0 detik |
+| `TEST MOTOR` | Hardware Aktuator Motor | Motor D5 aktif tenaga penuh (PWM 255) selama 2.0 detik |
 | `TEST BUZZER` | Hardware Aktuator Buzzer | Buzzer D6 berbunyi beep selama 1.5 detik |
 | `TEST OUTPUT` | Self-Test Semua Aktuator | Siklus getar motor diikuti bunyi buzzer |
 | `STOP` | Reset Aktuator Manual | Mematikan paksa seluruh motor dan buzzer |
@@ -177,9 +182,8 @@ Gunakan daftar perintah berikut langsung di Serial Monitor:
 
 Gunakan tabel ini saat melakukan uji coba prototipe di lapangan:
 
-- [ ] **Uji 0 (Kalibrasi)**: Posisikan tongkat berdiri tegak normal (seperti di Pic 3), ketik `CALIB`. Serial Monitor mencatat vektor acuan ke EEPROM dan sudut terkunci ke `0.0° [TEGAK]`.
-- [ ] **Uji 1**: Respon Morse SOS aktif saat tongkat dimiringkan/roboh (> 30°) selama 2 detik (`FALL`).
-- [ ] **Uji 2**: Motor menghasilkan 3 denyut saat dihadapkan pada bibir meja / turunan (`DROP`). Tidak terblokir lagi oleh sudut kemiringan normal tongkat.
+- [ ] **Uji 1**: Respon Morse SOS aktif saat dimiringkan > 60° selama 2 detik (`FALL`).
+- [ ] **Uji 2**: Motor menghasilkan 3 denyut saat dihadapkan pada bibir meja / turunan (`DROP`).
 - [ ] **Uji 3**: Motor menghasilkan 2 denyut panjang saat modul air mendeteksi cairan (`WET`).
 - [ ] **Uji 4**: Motor bergetar kontinu saat objek berada pada jarak < 30 cm (`NEAR`).
 - [ ] **Uji 5**: Motor bergetar cepat saat objek berada pada jarak 30 - 60 cm (`FRONT 45`).

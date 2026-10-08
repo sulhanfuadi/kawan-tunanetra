@@ -29,7 +29,8 @@ import {
   Upload,
   Vibrate,
   Volume2,
-  Zap
+  Zap,
+  ShieldAlert
 } from "lucide-react";
 import { TelemetryRecord, ArchivedFile } from "../app/page";
 
@@ -662,6 +663,274 @@ export default function DataVisualizer({
     );
   };
 
+  // State Machine Color & Hierarchy
+  const getStateColor = (st: string) => {
+    switch ((st || "").toUpperCase()) {
+      case "TONGKAT_JATUH": return "#a855f7"; // purple-500
+      case "TEPI_TURUNAN": return "#0284c7";  // sky-600
+      case "PERMUKAAN_BASAH": return "#3b82f6"; // blue-500
+      case "OBJEK_DEKAT": return "#ef4444";   // red-500
+      case "OBJEK_SEDANG": return "#f59e0b";  // amber-500
+      case "OBJEK_WASPADA": return "#eab308"; // yellow-500
+      case "NORMAL": return "#10b981";       // emerald-500
+      default: return "#71717a";             // zinc-500
+    }
+  };
+
+  const STATE_ORDER = [
+    { code: 6, state: "TONGKAT_JATUH", label: "JATUH (SOS)", color: "#a855f7" },
+    { code: 5, state: "TEPI_TURUNAN", label: "TURUNAN", color: "#0284c7" },
+    { code: 4, state: "PERMUKAAN_BASAH", label: "BASAH", color: "#3b82f6" },
+    { code: 3, state: "OBJEK_DEKAT", label: "DEKAT", color: "#ef4444" },
+    { code: 2, state: "OBJEK_SEDANG", label: "SEDANG", color: "#f59e0b" },
+    { code: 1, state: "OBJEK_WASPADA", label: "WASPADA", color: "#eab308" },
+    { code: 0, state: "NORMAL", label: "NORMAL", color: "#10b981" },
+  ];
+
+  const resolveStateCode = (r: TelemetryRecord): number => {
+    if (typeof r.hazardCode === "number" && !isNaN(r.hazardCode) && r.hazardCode >= 0 && r.hazardCode <= 6) {
+      return r.hazardCode;
+    }
+    const st = (r.state || "").toUpperCase();
+    if (st.includes("JATUH")) return 6;
+    if (st.includes("TURUNAN")) return 5;
+    if (st.includes("BASAH") || st.includes("WET")) return 4;
+    if (st.includes("DEKAT")) return 3;
+    if (st.includes("SEDANG")) return 2;
+    if (st.includes("WASPADA")) return 1;
+    return 0;
+  };
+
+  // Dedicated Stepped SVG Chart for System Hazard State Transitions
+  const renderSvgStateChart = (data: TelemetryRecord[]) => {
+    const width = 800;
+    const height = 210;
+    const padTop = 20;
+    const padBottom = 26;
+    const padLeft = 82;
+    const padRight = 28;
+
+    const plotW = width - padLeft - padRight;
+    const plotH = height - padTop - padBottom;
+
+    if (data.length < 2) {
+      return (
+        <div className="h-48 flex items-center justify-center text-xs font-mono text-zinc-400">
+          Menunggu data mengalir untuk merender grafik state ({data.length} poin)...
+        </div>
+      );
+    }
+
+    const getX = (idx: number) => padLeft + (idx / (data.length - 1)) * plotW;
+    const getY = (code: number) => padTop + plotH - (code / 6) * plotH;
+
+    // Generate stepped path
+    let stepPathD = "";
+    let stepAreaD = "";
+
+    data.forEach((r, idx) => {
+      const code = resolveStateCode(r);
+      const x = getX(idx);
+      const y = getY(code);
+
+      if (idx === 0) {
+        stepPathD += `M ${x.toFixed(1)} ${y.toFixed(1)}`;
+        stepAreaD += `M ${x.toFixed(1)} ${(padTop + plotH).toFixed(1)} L ${x.toFixed(1)} ${y.toFixed(1)}`;
+      } else {
+        const prevCode = resolveStateCode(data[idx - 1]);
+        const prevY = getY(prevCode);
+        // Step horizontal then vertical
+        stepPathD += ` L ${x.toFixed(1)} ${prevY.toFixed(1)} L ${x.toFixed(1)} ${y.toFixed(1)}`;
+        stepAreaD += ` L ${x.toFixed(1)} ${prevY.toFixed(1)} L ${x.toFixed(1)} ${y.toFixed(1)}`;
+      }
+    });
+
+    if (data.length > 0) {
+      const lastX = getX(data.length - 1);
+      stepAreaD += ` L ${lastX.toFixed(1)} ${(padTop + plotH).toFixed(1)} Z`;
+    }
+
+    const hoveredRecord = hoveredPointIdx !== null && hoveredPointIdx < data.length ? data[hoveredPointIdx] : null;
+    const hoveredCode = hoveredRecord ? resolveStateCode(hoveredRecord) : 0;
+    const hoveredX = hoveredPointIdx !== null ? getX(hoveredPointIdx) : null;
+    const hoveredY = hoveredRecord ? getY(hoveredCode) : null;
+    const hoveredColor = hoveredRecord ? getStateColor(hoveredRecord.state) : "#10b981";
+
+    return (
+      <div className="relative select-none">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="w-full h-48 overflow-visible"
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const normX = (mouseX / rect.width) * width;
+            if (normX >= padLeft && normX <= width - padRight) {
+              const rel = (normX - padLeft) / plotW;
+              const idx = Math.round(rel * (data.length - 1));
+              setHoveredPointIdx(Math.max(0, Math.min(data.length - 1, idx)));
+            }
+          }}
+          onMouseLeave={() => setHoveredPointIdx(null)}
+        >
+          <defs>
+            <linearGradient id="stateGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#a855f7" stopOpacity="0.25" />
+              <stop offset="50%" stopColor="#0284c7" stopOpacity="0.15" />
+              <stop offset="100%" stopColor="#10b981" stopOpacity="0.05" />
+            </linearGradient>
+          </defs>
+
+          {/* Horizontal Level Guides and State Labels */}
+          {STATE_ORDER.map((lvl) => {
+            const y = getY(lvl.code);
+            return (
+              <g key={lvl.code}>
+                <line
+                  x1={padLeft}
+                  y1={y}
+                  x2={width - padRight}
+                  y2={y}
+                  stroke={lvl.color}
+                  strokeOpacity={lvl.code === 0 ? 0.35 : 0.2}
+                  strokeWidth={lvl.code === 0 ? "1.5" : "1"}
+                  strokeDasharray={lvl.code === 0 ? undefined : "3 3"}
+                />
+                <text
+                  x={padLeft - 8}
+                  y={y + 3.5}
+                  textAnchor="end"
+                  fill={lvl.color}
+                  className="text-[8.5px] font-mono font-bold select-none"
+                >
+                  {lvl.label}
+                </text>
+                <text
+                  x={width - padRight + 6}
+                  y={y + 3}
+                  fill={lvl.color}
+                  className="text-[8px] font-mono opacity-60 font-semibold select-none"
+                >
+                  L{lvl.code}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Stepped Area Fill */}
+          {stepAreaD && (
+            <path
+              d={stepAreaD}
+              fill="url(#stateGradient)"
+              className="pointer-events-none transition-all duration-150"
+            />
+          )}
+
+          {/* Stepped Main Line */}
+          {stepPathD && (
+            <path
+              d={stepPathD}
+              fill="none"
+              stroke="#8b5cf6"
+              strokeWidth="2.5"
+              strokeLinecap="square"
+              strokeLinejoin="miter"
+              className="pointer-events-none transition-all duration-150"
+            />
+          )}
+
+          {/* Highlight Points on State Changes or Active Hazards */}
+          {data.map((r, idx) => {
+            const code = resolveStateCode(r);
+            if (code === 0) return null;
+            const prevCode = idx > 0 ? resolveStateCode(data[idx - 1]) : -1;
+            if (code === prevCode && idx % 4 !== 0) return null;
+
+            const cx = getX(idx);
+            const cy = getY(code);
+            const col = getStateColor(r.state);
+
+            return (
+              <circle
+                key={`st-dot-${idx}`}
+                cx={cx}
+                cy={cy}
+                r="3"
+                fill={col}
+                className="stroke-white dark:stroke-zinc-950"
+                strokeWidth="1"
+              />
+            );
+          })}
+
+          {/* Interactive Crosshair & Point */}
+          {hoveredX !== null && hoveredY !== null && hoveredRecord && (
+            <g className="pointer-events-none">
+              <line
+                x1={hoveredX}
+                y1={padTop}
+                x2={hoveredX}
+                y2={padTop + plotH}
+                className="stroke-zinc-400 dark:stroke-zinc-500"
+                strokeWidth="1"
+                strokeDasharray="2 2"
+              />
+              <circle
+                cx={hoveredX}
+                cy={hoveredY}
+                r="6"
+                fill={hoveredColor}
+                className="stroke-white dark:stroke-zinc-950"
+                strokeWidth="2.5"
+              />
+            </g>
+          )}
+
+          {/* X-axis time marks */}
+          <text
+            x={padLeft}
+            y={height - 6}
+            className="fill-zinc-400 text-[9px] font-mono select-none"
+          >
+            T=0s
+          </text>
+          <text
+            x={width - padRight}
+            y={height - 6}
+            textAnchor="end"
+            className="fill-zinc-400 text-[9px] font-mono select-none"
+          >
+            T={data[data.length - 1]?.elapsedSec?.toFixed(1) ?? "0"}s
+          </text>
+        </svg>
+
+        {/* Hover Tooltip Overlay */}
+        {hoveredPointIdx !== null && hoveredRecord && (
+          <div
+            className="absolute top-1 right-3 px-2.5 py-1.5 rounded-lg bg-zinc-900/95 dark:bg-white/95 text-white dark:text-zinc-900 text-[10px] font-mono pointer-events-none shadow-md backdrop-blur-xs flex items-center gap-2 border border-zinc-700/50"
+          >
+            <span className="font-bold">
+              #{hoveredRecord.no} (T+{hoveredRecord.elapsedSec.toFixed(1)}s):
+            </span>
+            <span
+              className="px-1.5 py-0.5 rounded font-extrabold uppercase text-[9px]"
+              style={{
+                backgroundColor: `${hoveredColor}25`,
+                color: hoveredColor,
+                border: `1px solid ${hoveredColor}50`
+              }}
+            >
+              {hoveredRecord.state} (Level {hoveredCode})
+            </span>
+            <span className="text-[9px] text-zinc-400 dark:text-zinc-600">
+              Motor: {hoveredRecord.motor} | Buzzer: {hoveredRecord.buzzer}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* 1. Header Command Deck for Data Visualizer */}
@@ -1062,24 +1331,83 @@ export default function DataVisualizer({
               }
             )}
           </div>
+
+          {/* Chart 5: Transisi Status Bahaya & Kondisi Sistem (Full-Width Stepped Waveform) */}
+          <div className="col-span-1 lg:col-span-2 p-4 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-purple-500" />
+                <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 font-mono">
+                  5. Transisi Status Bahaya & Kondisi Sistem (State Machine FSM)
+                </h4>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-mono">
+                <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 font-bold">
+                  6: JATUH (SOS)
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 font-bold">
+                  5: TURUNAN
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-bold">
+                  4: BASAH
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-bold">
+                  3: DEKAT
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-bold">
+                  2: SEDANG
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20 font-bold">
+                  1: WASPADA
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold">
+                  0: NORMAL
+                </span>
+              </div>
+            </div>
+            {renderSvgStateChart(displayRecords)}
+          </div>
         </div>
       )}
 
       {/* 4. Actuator Timeline Ribbon & Event Distribution */}
       {metrics && displayRecords.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Actuator Active Duty Cycle Ribbon */}
+          {/* Actuator & State Active Duty Cycle Ribbon */}
           <div className="lg:col-span-2 p-4 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-500" />
                 <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 font-mono">
-                  Pita Waktu Aktivitas Aktuator (Timeline Ribbon)
+                  Pita Waktu Status & Aktivitas Aktuator (Timeline Ribbon)
                 </h4>
               </div>
               <span className="text-[10px] font-mono text-zinc-400">
-                Status Haptik & Buzzer per Titik Waktu
+                Status Sistem, Haptik & Buzzer per Titik Waktu
               </span>
+            </div>
+
+            {/* System State Ribbon Track */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                <span className="flex items-center gap-1 font-bold">
+                  <ShieldAlert className="w-3 h-3 text-purple-500" /> Status Sistem FSM (State Ribbon)
+                </span>
+                <span>{metrics.hazardCount} Insiden Terdeteksi</span>
+              </div>
+              <div className="h-5 w-full bg-zinc-100 dark:bg-zinc-900 rounded-md overflow-hidden flex">
+                {displayRecords.map((r, i) => {
+                  const col = getStateColor(r.state);
+                  return (
+                    <div
+                      key={`st-ribbon-${i}`}
+                      className="h-full flex-1 transition-opacity hover:opacity-100"
+                      style={{ backgroundColor: col }}
+                      title={`#${r.no} (T+${r.elapsedSec.toFixed(1)}s): Status ${r.state}`}
+                    />
+                  );
+                })}
+              </div>
             </div>
 
             {/* Motor Timeline Track */}
