@@ -11,7 +11,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <math.h>
-#include <EEPROM.h>
 
 // Set ke 0 untuk hardware fisik (Buzzer aktif 3-5V via transistor BC547)
 // Set ke 1 jika simulasi di Wokwi
@@ -35,8 +34,8 @@ const int FRONT_MEDIUM_CM     = 60;
 const int FRONT_NEAR_CM       = 30;
 const int DROP_DELTA_LIMIT_CM = 15;
 const int WATER_LIMIT         = 400; // Diset ke 400 sesuai kalibrasi pengguna (ADC > 400 dianggap basah)
-const float DROP_TILT_MAX_DEG = 25.0; // Deteksi turunan aktif saat tongkat tegak (< 25°)
-const float FALL_TILT_LIMIT_DEG = 30.0; // Batas jatuh tongkat diubah ke > 30° (Alarm SOS)
+const float DROP_TILT_MAX_DEG = 45.0;
+const float FALL_TILT_LIMIT_DEG = 60.0;
 const unsigned long DROP_DEBOUNCE_MS = 200;
 const unsigned long FALL_CONFIRM_MS  = 2000;
 
@@ -107,50 +106,6 @@ void selfTest();
 byte mpuAddr = DEFAULT_MPU_ADDR;   // Alamat I2C MPU6050 dinamis (0x68 atau 0x69)
 bool frontPinsInverted = false;    // Status apakah pin Trig/Echo depan tertukar
 bool downPinsInverted = false;     // Status apakah pin Trig/Echo bawah tertukar
-
-// Vektor gravitasi acuan saat tongkat dalam posisi tegak lurus (upright)
-// Default fallback: Sesuai posisi fisik modul GY-521 yang ditempel di tongkat
-// di mana bidang sensor berada pada kemiringan ~45° antara sumbu Y dan Z (normal 40-45°)
-float refAccelX = 0.0;
-float refAccelY = 0.7071;
-float refAccelZ = 0.7071;
-bool isCalibrated = false;
-
-const int EEPROM_MAGIC_ADDR = 16;
-const byte EEPROM_MAGIC_VAL = 0x54; // 'T' untuk Tilt calibration
-
-void loadTiltCalibration() {
-  if (EEPROM.read(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC_VAL) {
-    EEPROM.get(EEPROM_MAGIC_ADDR + 1, refAccelX);
-    EEPROM.get(EEPROM_MAGIC_ADDR + 1 + sizeof(float), refAccelY);
-    EEPROM.get(EEPROM_MAGIC_ADDR + 1 + 2 * sizeof(float), refAccelZ);
-    
-    float mag = sqrt(refAccelX * refAccelX + refAccelY * refAccelY + refAccelZ * refAccelZ);
-    if (mag > 0.5 && mag < 1.5) {
-      refAccelX /= mag;
-      refAccelY /= mag;
-      refAccelZ /= mag;
-      isCalibrated = true;
-      return;
-    }
-  }
-  // Default fallback: kemiringan ~45° antara sumbu Y dan Z sesuai pemasangan fisik vertikal
-  refAccelX = 0.0;
-  refAccelY = 0.7071;
-  refAccelZ = 0.7071;
-  isCalibrated = false;
-}
-
-void saveTiltCalibration(float nx, float ny, float nz) {
-  refAccelX = nx;
-  refAccelY = ny;
-  refAccelZ = nz;
-  isCalibrated = true;
-  EEPROM.write(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VAL);
-  EEPROM.put(EEPROM_MAGIC_ADDR + 1, refAccelX);
-  EEPROM.put(EEPROM_MAGIC_ADDR + 1 + sizeof(float), refAccelY);
-  EEPROM.put(EEPROM_MAGIC_ADDR + 1 + 2 * sizeof(float), refAccelZ);
-}
 
 bool writeMPU(byte reg, byte value) {
   Wire.beginTransmission(mpuAddr);
@@ -255,46 +210,6 @@ bool readMPUAccel(float &ax, float &ay, float &az) {
   ay = rawY / 16384.0;
   az = rawZ / 16384.0;
   return true;
-}
-
-bool calibrateUpright() {
-  if (!mpuConnected) {
-    Serial.println(F("[IMU] Gagal kalibrasi: Sensor MPU6050 belum terdeteksi!"));
-    return false;
-  }
-  
-  Serial.println(F("[IMU] Memulai kalibrasi posisi tegak... Tahan tongkat tegak diam selama 0.3 detik."));
-  float sumX = 0, sumY = 0, sumZ = 0;
-  int samples = 0;
-  for (int i = 0; i < 20; i++) {
-    float ax, ay, az;
-    if (readMPUAccel(ax, ay, az)) {
-      sumX += ax;
-      sumY += ay;
-      sumZ += az;
-      samples++;
-    }
-    delay(15);
-  }
-  
-  if (samples >= 10) {
-    float avgX = sumX / samples;
-    float avgY = sumY / samples;
-    float avgZ = sumZ / samples;
-    float mag = sqrt(avgX * avgX + avgY * avgY + avgZ * avgZ);
-    if (mag > 0.4) {
-      saveTiltCalibration(avgX / mag, avgY / mag, avgZ / mag);
-      Serial.print(F("[IMU] KALIBRASI SUKSES! Vektor Acuan Tegak: X="));
-      Serial.print(refAccelX, 2); Serial.print(F("g, Y="));
-      Serial.print(refAccelY, 2); Serial.print(F("g, Z="));
-      Serial.print(refAccelZ, 2); Serial.println(F("g"));
-      Serial.println(F("[IMU] Tersimpan permanen di EEPROM. Kemiringan saat ini di-reset ke 0.0° [TEGAK]."));
-      tiltDeg = 0.0;
-      return true;
-    }
-  }
-  Serial.println(F("[IMU] Gagal kalibrasi: Tongkat bergerak atau data tidak stabil. Coba ulangi."));
-  return false;
 }
 
 // Mengembalikan jarak cm jika tersambung, atau -1.0 jika timeout/lepas
@@ -445,10 +360,6 @@ void processSerialCommand(String cmd) {
     Serial.println(F("  VOL <5-255>   -> Atur volume buzzer PWM (misal: VOL 35 lembut, VOL 120 sedang)"));
     Serial.println(F("  TEST OUTPUT   -> Self-test motor getar & buzzer bersamaan"));
     Serial.println(F("  STOP          -> Matikan semua uji aktuator manual"));
-    Serial.println(F("Kalibrasi & Diagnosa Sensor:"));
-    Serial.println(F("  CALIB         -> Kalibrasi posisi tegak tongkat ke 0.0° (Simpan ke EEPROM)"));
-    Serial.println(F("  TEST IMU      -> Uji live akselerometer MPU6050 & status kemiringan"));
-    Serial.println(F("  DIAG          -> Diagnosa koneksi fisik semua sensor"));
     Serial.println(F(""));
     Serial.println(F("Skenario Cepat (Preset Wokwi):"));
     Serial.println(F("  FALL    -> Simulasi Tongkat Jatuh (Alarm SOS)"));
@@ -515,53 +426,6 @@ void processSerialCommand(String cmd) {
     return;
   }
 
-  if (upper == "CALIB" || upper == "TARE" || upper == "ZERO" || upper == "CALIB IMU" || upper == "CALIB:IMU") {
-    calibrateUpright();
-    return;
-  }
-
-  if (upper == "TEST IMU" || upper == "TEST:IMU") {
-    Serial.println(F("\n--- [UJI SENSOR IMU MPU6050] ---"));
-    if (!mpuConnected) {
-      Serial.println(F("Status: LEPAS / TIDAK TERDETEKSI (Cek SDA ke A4, SCL ke A5, VCC ke 5V)"));
-    } else {
-      float ax, ay, az;
-      if (readMPUAccel(ax, ay, az)) {
-        float mag = sqrt(ax * ax + ay * ay + az * az);
-        float nx = (mag > 0.1) ? (ax / mag) : 0;
-        float ny = (mag > 0.1) ? (ay / mag) : 0;
-        float nz = (mag > 0.1) ? (az / mag) : 0;
-        float dot = constrain((nx * refAccelX) + (ny * refAccelY) + (nz * refAccelZ), -1.0f, 1.0f);
-        float curTilt = acos(dot) * 180.0 / PI;
-
-        Serial.print(F("Akselerometer Fisik: X=")); Serial.print(ax, 2);
-        Serial.print(F("g, Y=")); Serial.print(ay, 2);
-        Serial.print(F("g, Z=")); Serial.print(az, 2);
-        Serial.print(F("g (Total: ")); Serial.print(mag, 2); Serial.println(F("g)"));
-
-        Serial.print(F("Vektor Acuan Tegak:  X=")); Serial.print(refAccelX, 2);
-        Serial.print(F(", Y=")); Serial.print(refAccelY, 2);
-        Serial.print(F(", Z=")); Serial.print(refAccelZ, 2);
-        Serial.println(isCalibrated ? F(" [EEPROM]") : F(" [DEFAULT VERTIKAL ~45°]"));
-
-        Serial.print(F("Kemiringan Relatif:  ")); Serial.print(curTilt, 1);
-        Serial.print(F("° -> Status: "));
-        if (curTilt > FALL_TILT_LIMIT_DEG) {
-          Serial.println(F("[BAHAYA: TONGKAT JATUH / SOS]"));
-        } else if (curTilt > DROP_TILT_MAX_DEG) {
-          Serial.println(F("[MIRING (Turunan Dicegah)]"));
-        } else {
-          Serial.println(F("[TEGAK STABIL / AMAN]"));
-        }
-        Serial.println(F("Tips: Posisikan tongkat berdiri tegak normal, lalu ketik 'CALIB' untuk set acuan 0.0°."));
-      } else {
-        Serial.println(F("Gagal membaca register data sensor I2C."));
-      }
-    }
-    Serial.println(F("--------------------------------\n"));
-    return;
-  }
-
   if (upper == "DIAG" || upper == "CHECK" || upper == "TEST ALL" || upper == "TEST:ALL") {
     Serial.println(F("\n--- [HASIL DIAGNOSA KONEKSI SENSOR FISIK] ---"));
     
@@ -597,19 +461,8 @@ void processSerialCommand(String cmd) {
       setupMPU(); // Bangunkan dari mode sleep
       float ax, ay, az;
       if (readMPUAccel(ax, ay, az)) {
-        float mag = sqrt(ax * ax + ay * ay + az * az);
-        float nx = (mag > 0.1) ? (ax / mag) : 0;
-        float ny = (mag > 0.1) ? (ay / mag) : 0;
-        float nz = (mag > 0.1) ? (az / mag) : 0;
-        float dot = constrain((nx * refAccelX) + (ny * refAccelY) + (nz * refAccelZ), -1.0f, 1.0f);
-        float curTilt = acos(dot) * 180.0 / PI;
-
         Serial.print(F("TERHUBUNG pada 0x")); Serial.print(i2cAddr, HEX);
-        Serial.print(F(" (X:")); Serial.print(ax, 2);
-        Serial.print(F(" Y:")); Serial.print(ay, 2);
-        Serial.print(F(" Z:")); Serial.print(az, 2);
-        Serial.print(F("g | Kemiringan: ")); Serial.print(curTilt, 1);
-        Serial.println(F("°)"));
+        Serial.print(F(" (Accel Z: ")); Serial.print(az, 2); Serial.println(F("g)"));
       } else {
         Serial.print(F("ALAMAT 0x")); Serial.print(i2cAddr, HEX); Serial.println(F(" MERESPONS TAPI GAGAL BACA DATA"));
       }
@@ -936,13 +789,10 @@ void updateInputs() {
     if (mpuConnected) {
       if (readMPUAccel(ax, ay, az)) {
         float magnitude = sqrt(ax * ax + ay * ay + az * az);
-        if (magnitude > 0.1) {
-          float nx = ax / magnitude;
-          float ny = ay / magnitude;
-          float nz = az / magnitude;
-          float dot = (nx * refAccelX) + (ny * refAccelY) + (nz * refAccelZ);
-          dot = constrain(dot, -1.0f, 1.0f);
-          tiltDeg = acos(dot) * 180.0 / PI;
+        if (magnitude > 0.05) {
+          float ratio = fabs(az) / magnitude;
+          ratio = constrain(ratio, 0.0f, 1.0f);
+          tiltDeg = acos(ratio) * 180.0 / PI;
         }
       } else {
         mpuConnected = false;
@@ -955,7 +805,6 @@ void updateInputs() {
         lastMpuRetryMs = now;
         if (setupMPU()) {
           mpuConnected = true;
-          loadTiltCalibration();
         }
       }
     }
@@ -971,7 +820,7 @@ void updateInputs() {
     dropConfirmed = false;
   }
 
-  // Deteksi tongkat jatuh: HANYA aktif jika MPU6050 TERHUBUNG (kemiringan > 30 deg selama > 2 detik)
+  // Deteksi tongkat jatuh: HANYA aktif jika MPU6050 TERHUBUNG (kemiringan > 60 deg selama > 2 detik)
   bool fallButton = (digitalRead(PIN_FALL_TEST) == LOW);
   bool fallCandidate = mpuConnected && (tiltDeg > FALL_TILT_LIMIT_DEG);
   if (fallCandidate) {
@@ -1008,44 +857,42 @@ bool pulseWindow(unsigned long phase, unsigned long startMs, unsigned long endMs
   return phase >= startMs && phase < endMs;
 }
 
-// Menghasilkan nilai PWM getaran motor: 100% TEGANGAN PENUH (PWM 255) PADA SEMUA KASUS AKTIF
-// Diferensiasi murni diatur lewat pola ritme, durasi sentakan inersia, dan jeda antar-getar agar getaran terasa paling kencang & bertenaga
-byte getVibrationPwm(AlertState state, unsigned long now) {
+bool vibrationPattern(AlertState state, unsigned long now) {
   switch (state) {
     case OBJECT_LOW:
-      // Jarak Jauh (60-100cm): Pulsa lebih tegas, jeda diperpendek (600ms siklus: 150ms getar, 450ms jeda)
-      return ((now % 600UL) < 150UL) ? 255 : 0;
+      // Jarak Jauh (60-100cm): Denyut Tunggal Mantap ("tek 1 1")
+      // 320ms getar penuh (PWM 255), 680ms jeda -> siklus 1000ms (1x ketukan kuat per detik di genggaman tangan)
+      return (now % 1000UL) < 320UL;
 
     case OBJECT_MEDIUM:
-      // Jarak Sedang (30-60cm): Denyut cepat & rapat (260ms siklus: 140ms getar, 120ms jeda)
-      return ((now % 260UL) < 140UL) ? 255 : 0;
+      // Jarak Sedang (30-60cm): Denyut Cepat & Rapat ("tek... tek... tek...")
+      // 260ms getar penuh, 220ms jeda -> siklus 480ms (ritme rapat yang terasa tegas dan jelas di telapak tangan)
+      return (now % 480UL) < 260UL;
 
     case OBJECT_NEAR:
-      // Jarak Sangat Dekat (<30cm): Getaran MAKSIMAL KONTINU 100% tanpa henti
-      return 255;
+      // Jarak Sangat Dekat (<30cm): DI-PANJER KONTINU 100% NONSTOP tanpa jeda
+      // Getaran maksimal penuh terus-menerus untuk bahaya tabrakan kritis di depan tubuh
+      return true;
 
     case WATER_ALERT: {
-      // Genangan Air / Basah: 2 Denyut Mantap & Cepat (siklus 1100ms: 400ms getar, 150ms jeda, 400ms getar, 150ms jeda)
-      unsigned long p = now % 1100UL;
-      bool on = pulseWindow(p, 0, 400) || pulseWindow(p, 550, 950);
-      return on ? 255 : 0;
+      // Genangan Air / Permukaan Basah: 2 Denyut Panjang ("2 2 2" / Ganda Mantap)
+      // Siklus 1800ms: 400ms Getar, 200ms Jeda, 400ms Getar, 800ms Istirahat
+      // Terasa jelas dua gelombang getaran panjang menghentak telapak tangan tunanetra
+      unsigned long p = now % 1800UL;
+      return pulseWindow(p, 0, 400) || pulseWindow(p, 600, 1000);
     }
 
     case DROP_ALERT: {
-      // Tepi Turunan / Lubang: 3 Denyut Cepat Menghentak (siklus 850ms)
-      unsigned long p = now % 850UL;
-      bool on = pulseWindow(p, 0, 180) || pulseWindow(p, 260, 440) || pulseWindow(p, 520, 700);
-      return on ? 255 : 0;
+      // Tepi Turunan / Lubang Jalan / Tangga: Burst 3 Denyut Menghentak Kuat ("3 3 3")
+      // Siklus 1600ms: Tiga ketukan getar 220ms berselang jeda 120ms, lalu 700ms jeda istirahat
+      // Di genggaman tangan terasa getaran tiga kali berturutan yang sangat tegas dan berkarakter
+      unsigned long p = now % 1600UL;
+      return pulseWindow(p, 0, 220) || pulseWindow(p, 340, 560) || pulseWindow(p, 680, 900);
     }
 
     default:
-      return 0;
+      return false;
   }
-}
-
-// Kompatibilitas boolean untuk telemetri flag
-bool vibrationPattern(AlertState state, unsigned long now) {
-  return getVibrationPwm(state, now) > 0;
 }
 
 bool buzzerPattern(AlertState state, unsigned long now) {
@@ -1106,9 +953,9 @@ void updateOutputs(AlertState state) {
     vibrationOn = (manualMotorPwm > 0);
     analogWrite(PIN_VIBRATION, manualMotorPwm);
   } else {
-    byte pwmVal = getVibrationPwm(state, now);
-    vibrationOn = (pwmVal > 0);
-    analogWrite(PIN_VIBRATION, pwmVal);
+    vibrationOn = vibrationPattern(state, now);
+    // Tenaga getar penuh: PWM 255 (100% tegangan motor) untuk getaran yang jauh lebih terasa dan responsif
+    analogWrite(PIN_VIBRATION, vibrationOn ? 255 : 0);
   }
 
   // 2. Buzzer: Cek apakah sedang dalam mode uji/override manual
@@ -1173,23 +1020,13 @@ void setup() {
   pinMode(PIN_BUZZER, OUTPUT);
 
   // Inisialisasi dan diagnosa MPU6050
-  loadTiltCalibration();
   Serial.print(F("[BOOT] Mengecek Sensor IMU MPU6050 (A4/A5)... "));
   bool mpuOk = setupMPU();
   if (mpuOk) {
     mpuConnected = true;
     Serial.print(F("OK (Terdeteksi di 0x"));
     Serial.print(mpuAddr, HEX);
-    Serial.print(F(") -> Acuan Tegak: ["));
-    if (isCalibrated) {
-      Serial.print(F("EEPROM"));
-    } else {
-      Serial.print(F("DEFAULT VERTIKAL"));
-    }
-    Serial.print(F(" X:")); Serial.print(refAccelX, 2);
-    Serial.print(F(" Y:")); Serial.print(refAccelY, 2);
-    Serial.print(F(" Z:")); Serial.print(refAccelZ, 2);
-    Serial.println(F("]"));
+    Serial.println(F(")"));
   } else {
     mpuConnected = false;
     Serial.println(F("LEPAS/GAGAL (Bus I2C A4/A5 tidak merespons)"));
