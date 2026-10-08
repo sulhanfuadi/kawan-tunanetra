@@ -803,35 +803,52 @@ bool pulseWindow(unsigned long phase, unsigned long startMs, unsigned long endMs
   return phase >= startMs && phase < endMs;
 }
 
-bool vibrationPattern(AlertState state, unsigned long now) {
+// Menghasilkan nilai PWM getaran motor (0 = Mati, 210 - 255 = Kekuatan Penuh Bertenaga dengan Variasi Tegas)
+byte getVibrationPwm(AlertState state, unsigned long now) {
   switch (state) {
-    case OBJECT_LOW:
-      // Jarak Jauh (60-100cm): Pulsa lebih tegas, jeda diperpendek (600ms siklus: 150ms getar, 450ms jeda)
-      return (now % 600UL) < 150UL;
+    case OBJECT_LOW: {
+      // Jarak Jauh (60-100cm): Pulsa bertenaga sedang-tinggi (PWM 210), periode 500ms (160ms getar, 340ms jeda)
+      // Karakter: "Sentilan" mantap berjarak
+      bool on = (now % 500UL) < 160UL;
+      return on ? 210 : 0;
+    }
 
-    case OBJECT_MEDIUM:
-      // Jarak Sedang (30-60cm): Denyut cepat & rapat (260ms siklus: 140ms getar, 120ms jeda)
-      return (now % 260UL) < 140UL;
+    case OBJECT_MEDIUM: {
+      // Jarak Sedang (30-60cm): Denyut cepat rapat bertenaga tinggi (PWM 235), periode 240ms (140ms getar, 100ms jeda)
+      // Karakter: Ritme metronom cepat bertempo konstan
+      bool on = (now % 240UL) < 140UL;
+      return on ? 235 : 0;
+    }
 
     case OBJECT_NEAR:
-      // Jarak Sangat Dekat (<30cm): Getaran MAKSIMAL KONTINU 100% tanpa henti
-      return true;
+      // Jarak Sangat Dekat (<30cm): Tenaga MAKSIMAL MUTLAK 100% (PWM 255) KONTINU tanpa jeda
+      // Karakter: Dengung keras tanpa henti (alarm benturan darurat)
+      return 255;
 
     case WATER_ALERT: {
-      // Genangan Air / Basah: 2 Denyut Mantap & Cepat (siklus 1100ms: 400ms getar, 150ms jeda, 400ms getar, 150ms jeda)
-      unsigned long p = now % 1100UL;
-      return pulseWindow(p, 0, 400) || pulseWindow(p, 550, 950);
+      // Genangan Air / Basah: 2 Denyut Panjang Mantap Bergelombang (PWM 245)
+      // Karakter: "Zzzzzzt... Zzzzzzt..." khas permukaan licin (siklus 950ms: 380ms getar, 120ms jeda, 380ms getar, 70ms jeda)
+      unsigned long p = now % 950UL;
+      bool on = pulseWindow(p, 0, 380) || pulseWindow(p, 500, 880);
+      return on ? 245 : 0;
     }
 
     case DROP_ALERT: {
-      // Tepi Turunan / Lubang: 3 Denyut Cepat Menghentak (siklus 850ms)
-      unsigned long p = now % 850UL;
-      return pulseWindow(p, 0, 180) || pulseWindow(p, 260, 440) || pulseWindow(p, 520, 700);
+      // Tepi Turunan / Lubang: 3 Hentakan Cepat Agresif MAKSIMAL (PWM 255) lalu JEDA PANJANG
+      // Karakter: "DEG - DEG - DEG ..... DEG - DEG - DEG" (siklus 900ms: 3x hentakan 130ms, jeda antar-hentak 60ms, jeda akhir 390ms)
+      unsigned long p = now % 900UL;
+      bool on = pulseWindow(p, 0, 130) || pulseWindow(p, 190, 320) || pulseWindow(p, 380, 510);
+      return on ? 255 : 0;
     }
 
     default:
-      return false;
+      return 0;
   }
+}
+
+// Kompatibilitas boolean untuk telemetri flag
+bool vibrationPattern(AlertState state, unsigned long now) {
+  return getVibrationPwm(state, now) > 0;
 }
 
 bool buzzerPattern(AlertState state, unsigned long now) {
@@ -883,9 +900,9 @@ void updateOutputs(AlertState state) {
     vibrationOn = (manualMotorPwm > 0);
     analogWrite(PIN_VIBRATION, manualMotorPwm);
   } else {
-    vibrationOn = vibrationPattern(state, now);
-    // Tenaga getar penuh: PWM 255 (100% tegangan motor) untuk getaran yang jauh lebih terasa dan responsif
-    analogWrite(PIN_VIBRATION, vibrationOn ? 255 : 0);
+    byte pwmVal = getVibrationPwm(state, now);
+    vibrationOn = (pwmVal > 0);
+    analogWrite(PIN_VIBRATION, pwmVal);
   }
 
   // 2. Buzzer: Cek apakah sedang dalam mode uji/override manual

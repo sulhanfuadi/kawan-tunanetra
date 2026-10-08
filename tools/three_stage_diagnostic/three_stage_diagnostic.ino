@@ -730,41 +730,43 @@ void loop() {
       // Evaluasi Umpan Balik:
       // Prioritas 1: Bahaya Turunan / Lubang (> 15cm lebih dalam dari lantai)
       if (downConn && dropDelta > 15.0) {
-        // Alarm bahaya: Getar kontinu + Bip cepat
-        analogWrite(PIN_MOTOR, 240);
-        bool b = ((millis() / 120) % 2 == 0);
+        // Hentakan agresif maksimal: PWM 255 (3 denyut cepat)
+        unsigned long p = millis() % 900UL;
+        bool v = (p < 130) || (p >= 190 && p < 320) || (p >= 380 && p < 510);
+        analogWrite(PIN_MOTOR, v ? 255 : 0);
+        bool b = ((millis() / 150) % 2 == 0);
         digitalWrite(PIN_BUZZER, b ? HIGH : LOW);
         Serial.print(F("[KATANA LIVE] !!! WASPADA LUBANG / TURUNAN !!! Delta: +"));
         Serial.print(dropDelta, 1);
-        Serial.println(F(" cm"));
+        Serial.println(F(" cm (Motor PWM 255 Triple Pulse)"));
       }
       // Prioritas 2: Rintangan Depan Dekat (< 40cm)
       else if (frontConn && dFront < 40.0) {
-        analogWrite(PIN_MOTOR, 255);
+        analogWrite(PIN_MOTOR, 255); // Tenaga Maksimal 100% Kontinu
         bool b = ((millis() / 100) % 2 == 0);
         digitalWrite(PIN_BUZZER, b ? HIGH : LOW);
         Serial.print(F("[KATANA LIVE] BAHAYA DEKAT! Rintangan: "));
         Serial.print(dFront, 1);
-        Serial.println(F(" cm (Motor MAKSIMAL + Beep Cepat)"));
+        Serial.println(F(" cm (Motor MAKSIMAL 255 + Beep Cepat)"));
       }
       // Prioritas 3: Rintangan Sedang (40cm - 90cm)
       else if (frontConn && dFront < 90.0) {
-        bool v = ((millis() / 200) % 2 == 0);
-        analogWrite(PIN_MOTOR, v ? 190 : 0);
+        bool v = ((millis() % 240UL) < 140UL);
+        analogWrite(PIN_MOTOR, v ? 235 : 0); // Tenaga Tinggi PWM 235
         bool b = ((millis() / 250) % 2 == 0);
         digitalWrite(PIN_BUZZER, b ? HIGH : LOW);
         Serial.print(F("[KATANA LIVE] PERINGATAN! Rintangan: "));
         Serial.print(dFront, 1);
-        Serial.println(F(" cm (Getar Sedang + Beep Sedang)"));
+        Serial.println(F(" cm (Getar Tegas 235 + Beep Sedang)"));
       }
       // Prioritas 4: Rintangan Jauh (90cm - 150cm)
       else if (frontConn && dFront < 150.0) {
-        bool v = ((millis() / 400) % 2 == 0);
-        analogWrite(PIN_MOTOR, v ? 130 : 0);
-        digitalWrite(PIN_BUZZER, LOW); // Hening atau getar halus saja
+        bool v = ((millis() % 500UL) < 160UL);
+        analogWrite(PIN_MOTOR, v ? 210 : 0); // Tenaga Sedang-Tinggi PWM 210
+        digitalWrite(PIN_BUZZER, LOW); // Hening
         Serial.print(F("[KATANA LIVE] Waspada Jauh: Rintangan "));
         Serial.print(dFront, 1);
-        Serial.println(F(" cm (Getar Halus)"));
+        Serial.println(F(" cm (Getar Tegas 210)"));
       }
       // Kondisi Aman (Jalan Bersih / Sensor Lepas)
       else {

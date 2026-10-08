@@ -55,14 +55,14 @@ Kondisi di mana pengguna terjatuh atau tongkat terlepas ke tanah. Membutuhkan pe
 
 ---
 
-### KASUS 2: Tepi Turunan / Lubang Jalan / Bibir Tangga (Prioritas 2 - Bahaya Taktil)
+#### KASUS 2: Tepi Turunan / Lubang Jalan / Bibir Tangga (Prioritas 2 - Bahaya Taktil)
 Kondisi di mana ada penurunan permukaan jalan mendadak di depan langkah tunanetra.
 
 - **Kondisi Logika**: `downConnected == true` DAN selisih jarak bawah `dropDeltaCm > 15 cm` di atas baseline terkalibrasi (contoh: baseline 30 cm, jarak terukur > 45 cm) DAN kemiringan tongkat `tiltDeg < 45.0°` selama `>= 200 ms`.
 - **Pengujian Fisik Riil**: Pegang alat menghadap ke bawah di atas meja (~30 cm), lalu geser keluar bibir meja sehingga sensor menghadap langsung ke lantai ruang yang lebih dalam (> 45 cm).
 - **Simulasi Serial / Dashboard**: Ketik `DROP` atau `DOWN 55` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] 3 denyut getar taktil intensitas tinggi berturutan (160ms getar, 120ms hening, 160ms getar, 120ms hening, 160ms getar per siklus 1.3 detik).
+  - **Motor (D5)**: [AKTIF] 3 Hentakan Cepat Agresif MAKSIMAL (PWM 255) berurutan lalu jeda panjang (`DEG - DEG - DEG ..... DEG - DEG - DEG`). Karakter hentakan ini sangat khas membedakannya dari rintangan depan.
   - **Buzzer (D6)**: [MATI] Tetap hening agar tidak menimbulkan polusi pendengaran bagi pengguna.
 - **Status Telemetri**: `TEPI_TURUNAN` (Status Code: `DROP_ALERT`).
 
@@ -71,11 +71,11 @@ Kondisi di mana ada penurunan permukaan jalan mendadak di depan langkah tunanetr
 ### KASUS 3: Genangan Air / Permukaan Basah Licin (Prioritas 3 - Peringatan Permukaan)
 Kondisi di mana ujung bawah tongkat menyentuh genangan air, kubangan, atau permukaan jalan basah.
 
-- **Kondisi Logika**: Sensor air aktif (`waterSensorInstalled == true`) DAN nilai ADC pin A0 `waterValue > 650`.
-- **Pengujian Fisik Riil**: Ketik `WATER ON` di Serial Monitor, lalu sentuhkan pelat kisi-kisi sensor air pin A0 ke air atau tisu basah.
+- **Kondisi Logika**: Sensor air aktif (`waterSensorInstalled == true`) DAN nilai ADC pin A0 `waterValue > 400`.
+- **Pengujian Fisik Riil**: Sentuhkan pelat kisi-kisi sensor air pin A0 ke air atau tisu basah (nilai ADC > 400).
 - **Simulasi Serial / Dashboard**: Ketik `WET` atau `WATER 850` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] 2 denyut getar panjang khas (500ms getar, 250ms hening, 500ms getar per siklus 1.9 detik).
+  - **Motor (D5)**: [AKTIF] 2 Denyut Panjang Mantap Bergelombang bertenaga tinggi (PWM 245) dengan ritme gelombang khas permukaan licin (`Zzzzzzt... Zzzzzzt...`).
   - **Buzzer (D6)**: [MATI] Tetap hening.
 - **Status Telemetri**: `PERMUKAAN_BASAH` (Status Code: `WATER_ALERT`).
 
@@ -88,7 +88,7 @@ Kondisi di mana objek atau dinding berada sangat dekat dan berisiko langsung men
 - **Pengujian Fisik Riil**: Dekatkan telapak tangan atau penghalang di depan sensor HC-SR04 depan pada jarak < 30 cm (misal 15 cm).
 - **Simulasi Serial / Dashboard**: Ketik `NEAR` atau `FRONT 15` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] Getaran kontinu frekuensi tinggi tanpa henti (PWM 240 pada pegangan).
+  - **Motor (D5)**: [AKTIF] Getaran MAKSIMAL MUTLAK 100% KONTINU (PWM 255) tanpa jeda mati pada pegangan tongkat.
   - **Buzzer (D6)**: [AKTIF] Bunyi BEEP staccato cepat (100ms ON / 100ms OFF) sebagai alarm audio bahaya tabrakan!
 - **Status Telemetri**: `OBJEK_DEKAT` (Status Code: `OBJECT_NEAR`, Buzzer: `BEEP`).
 
@@ -101,7 +101,7 @@ Kondisi rintangan terdeteksi dalam jarak jangkauan langkah kaki berikutnya.
 - **Pengujian Fisik Riil**: Posisikan telapak tangan atau penghalang di depan sensor depan pada jarak 45 cm.
 - **Simulasi Serial / Dashboard**: Ketik `FRONT 45` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] Getaran berdenyut cepat (periode 400ms: 120ms bergetar, 280ms jeda).
+  - **Motor (D5)**: [AKTIF] Denyut cepat rapat bertenaga tinggi (PWM 235), tempo konstan berulang (`Bzz-Bzz-Bzz`).
   - **Buzzer (D6)**: [MATI] Tetap hening.
 - **Status Telemetri**: `OBJEK_SEDANG` (Status Code: `OBJECT_MEDIUM`).
 
@@ -114,7 +114,7 @@ Kondisi rintangan mulai terdeteksi di kejauhan agar pengguna bersiap mengambil j
 - **Pengujian Fisik Riil**: Posisikan penghalang di depan sensor depan pada jarak 80 cm.
 - **Simulasi Serial / Dashboard**: Ketik `FRONT 80` lalu Enter.
 - **Respon Aktuator**:
-  - **Motor (D5)**: [AKTIF] Getaran berdenyut santai / lambat (periode 1000ms: 100ms bergetar, 900ms jeda).
+  - **Motor (D5)**: [AKTIF] Pulsa getaran tegas berjarak (PWM 210), jeda santai (`Bzz..... Bzz.....`).
   - **Buzzer (D6)**: [MATI] Tetap hening.
 - **Status Telemetri**: `OBJEK_WASPADA` (Status Code: `OBJECT_LOW`).
 
@@ -123,7 +123,7 @@ Kondisi rintangan mulai terdeteksi di kejauhan agar pengguna bersiap mengambil j
 ### KASUS 7: Jalur Aman / Normal Walkway (Prioritas 7 - Kondisi Normal)
 Kondisi jalan rata tanpa rintangan dalam radius aman.
 
-- **Kondisi Logika**: Depan `>= 100 cm`, Bawah delta `<= 15 cm`, Kemiringan `<= 60°`, dan Sensor Air `<= 650`.
+- **Kondisi Logika**: Depan `>= 100 cm`, Bawah delta `<= 15 cm`, Kemiringan `<= 60°`, dan Sensor Air `<= 400`.
 - **Pengujian Fisik Riil**: Arahkan tongkat ke ruang terbuka tanpa ada halangan di depan maupun turunan di bawah.
 - **Simulasi Serial / Dashboard**: Ketik `NORMAL` atau `DEMO OFF` lalu Enter.
 - **Respon Aktuator**:
