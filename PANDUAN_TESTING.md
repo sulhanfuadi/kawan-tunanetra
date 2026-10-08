@@ -45,9 +45,9 @@ Standby    : STANDBY      (Sensor Lepas)       -> Motor OFF, Buzzer OFF (Cegah F
 ### KASUS 1: Tongkat Terjatuh / Tunanetra Tumbang (Prioritas 1 - Darurat Utama)
 Kondisi di mana pengguna terjatuh atau tongkat terlepas ke tanah. Membutuhkan pertolongan audio bagi orang di sekitar.
 
-- **Kondisi Logika**: `mpuConnected == true` DAN `tiltDeg > 60.0°` bertahan terus-menerus selama `>= 2000 ms` (2 detik).
-- **Pengujian Fisik Riil**: Baringkan tongkat / sensor MPU6050 mendatar di lantai/meja (> 60°) selama minimal 2 detik.
-- **Simulasi Serial / Dashboard**: Ketik `FALL` atau `TILT 75` lalu Enter.
+- **Kondisi Logika**: `mpuConnected == true` DAN `tiltDeg > 30.0°` bertahan terus-menerus selama `>= 2000 ms` (2 detik).
+- **Pengujian Fisik Riil**: Miringkan atau baringkan tongkat (> 30°) selama minimal 2 detik.
+- **Simulasi Serial / Dashboard**: Ketik `FALL` atau `TILT 45` lalu Enter.
 - **Respon Aktuator**:
   - **Buzzer (D6)**: [AKTIF] Bunyi pola kode internasional SOS Morse (`... --- ...`).
   - **Motor (D5)**: [MATI] Getaran dinonaktifkan untuk menghemat daya baterai dan memfokuskan alarm pada audio lingkungan.
@@ -58,7 +58,7 @@ Kondisi di mana pengguna terjatuh atau tongkat terlepas ke tanah. Membutuhkan pe
 #### KASUS 2: Tepi Turunan / Lubang Jalan / Bibir Tangga (Prioritas 2 - Bahaya Taktil)
 Kondisi di mana ada penurunan permukaan jalan mendadak di depan langkah tunanetra.
 
-- **Kondisi Logika**: `downConnected == true` DAN selisih jarak bawah `dropDeltaCm > 15 cm` di atas baseline terkalibrasi (contoh: baseline 30 cm, jarak terukur > 45 cm) DAN kemiringan tongkat `tiltDeg < 45.0°` selama `>= 200 ms`.
+- **Kondisi Logika**: `downConnected == true` DAN selisih jarak bawah `dropDeltaCm > 15 cm` di atas baseline terkalibrasi (contoh: baseline 30 cm, jarak terukur > 45 cm) DAN kemiringan tongkat `tiltDeg < 25.0°` selama `>= 200 ms`.
 - **Pengujian Fisik Riil**: Pegang alat menghadap ke bawah di atas meja (~30 cm), lalu geser keluar bibir meja sehingga sensor menghadap langsung ke lantai ruang yang lebih dalam (> 45 cm).
 - **Simulasi Serial / Dashboard**: Ketik `DROP` atau `DOWN 55` lalu Enter.
 - **Respon Aktuator**:
@@ -178,7 +178,7 @@ Gunakan daftar perintah berikut langsung di Serial Monitor:
 Gunakan tabel ini saat melakukan uji coba prototipe di lapangan:
 
 - [ ] **Uji 0 (Kalibrasi)**: Posisikan tongkat berdiri tegak normal (seperti di Pic 3), ketik `CALIB`. Serial Monitor mencatat vektor acuan ke EEPROM dan sudut terkunci ke `0.0° [TEGAK]`.
-- [ ] **Uji 1**: Respon Morse SOS aktif saat tongkat roboh ke lantai mendatar (> 60°) selama 2 detik (`FALL`).
+- [ ] **Uji 1**: Respon Morse SOS aktif saat tongkat dimiringkan/roboh (> 30°) selama 2 detik (`FALL`).
 - [ ] **Uji 2**: Motor menghasilkan 3 denyut saat dihadapkan pada bibir meja / turunan (`DROP`). Tidak terblokir lagi oleh sudut kemiringan normal tongkat.
 - [ ] **Uji 3**: Motor menghasilkan 2 denyut panjang saat modul air mendeteksi cairan (`WET`).
 - [ ] **Uji 4**: Motor bergetar kontinu saat objek berada pada jarak < 30 cm (`NEAR`).

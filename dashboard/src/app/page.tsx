@@ -238,7 +238,7 @@ const translations = {
     meterBaseline: "Baseline (30cm)",
     meterDropLimit: "Batas >15cm",
     meterTiltUpright: "0° Tegak",
-    meterTiltLimit: "Batas >60° (SOS)",
+    meterTiltLimit: "Batas >30° (SOS)",
     meterTiltFlat: "90° Datar",
     meterWaterDry: "0 Kering",
     meterWaterLimit: "Batas >400",
@@ -406,7 +406,7 @@ const translations = {
     meterBaseline: "Baseline (30cm)",
     meterDropLimit: "Limit >15cm",
     meterTiltUpright: "0° Upright",
-    meterTiltLimit: "Limit >60° (SOS)",
+    meterTiltLimit: "Limit >30° (SOS)",
     meterTiltFlat: "90° Flat",
     meterWaterDry: "0 Dry",
     meterWaterLimit: "Limit >400",
@@ -2449,7 +2449,7 @@ export default function KatanaDashboard() {
                   <span className="text-[10px] font-mono font-bold text-zinc-500">
                     {!data.mpuConnected
                       ? t.bracketOffline
-                      : data.tiltDeg! > 60
+                      : data.tiltDeg! > 30
                       ? t.bracketFallen
                       : t.bracketUpright}
                   </span>
@@ -2463,7 +2463,7 @@ export default function KatanaDashboard() {
                     className={`h-full rounded-full transition-all duration-300 ${
                       !data.mpuConnected
                         ? "w-0"
-                        : data.tiltDeg! > 60
+                        : data.tiltDeg! > 30
                         ? "bg-rose-500"
                         : "bg-zinc-700 dark:bg-zinc-300"
                     }`}
@@ -2484,7 +2484,7 @@ export default function KatanaDashboard() {
                 <div className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300 truncate">
                   {!data.mpuConnected
                     ? t.sensorDisconnected
-                    : data.tiltDeg! > 60
+                    : data.tiltDeg! > 30
                     ? t.tiltHazard
                     : t.tiltReady}
                 </div>
@@ -2590,7 +2590,8 @@ export default function KatanaDashboard() {
           
           <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-zinc-200 dark:divide-zinc-800">
             
-            {/* Left 7 Columns: 2D CAD Blueprint Visualizer */}
+            {/* Left 7 Columns: 2D CAD Blueprint Visualizer (DI-HIDE SEMENTARA, KODE UTUH DIPERTAHANKAN) */}
+            {false && (
             <div className="lg:col-span-7 flex flex-col justify-between">
               
               {/* CAD Canvas Header */}
@@ -2605,7 +2606,7 @@ export default function KatanaDashboard() {
                   </p>
                 </div>
                 <span className="w-32 h-7 flex items-center justify-center font-mono text-xs font-bold bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md shrink-0">
-                  {t.cadAngle} {data.mpuConnected && data.tiltDeg !== null ? data.tiltDeg.toFixed(1) : "--"}°
+                  {t.cadAngle} {data.mpuConnected && data.tiltDeg !== null ? data.tiltDeg!.toFixed(1) : "--"}°
                 </span>
               </div>
 
@@ -2632,7 +2633,7 @@ export default function KatanaDashboard() {
                 <div
                   className="w-1.5 bg-zinc-900 dark:bg-white h-52 absolute bottom-8 origin-bottom transition-transform duration-200 ease-out"
                   style={{
-                    transform: `rotate(${Math.min(85, data.mpuConnected && data.tiltDeg !== null ? data.tiltDeg : 0)}deg)`
+                    transform: `rotate(${Math.min(85, data.mpuConnected && data.tiltDeg !== null ? data.tiltDeg! : 0)}deg)`
                   }}
                 >
                   {/* Arm Cuff & Handle Bracket */}
@@ -2658,7 +2659,7 @@ export default function KatanaDashboard() {
                 </div>
 
                 {/* Fall Alert Overlay */}
-                {data.mpuConnected && data.tiltDeg !== null && data.tiltDeg > 60 && (
+                {data.mpuConnected && data.tiltDeg !== null && data.tiltDeg! > 30 && (
                   <div className="absolute top-4 px-4 py-2 bg-rose-600 text-white font-extrabold text-xs rounded-xl shadow-lg border border-rose-500 animate-bounce tracking-wide flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4" />
                     {t.fallWarning}
@@ -2667,9 +2668,10 @@ export default function KatanaDashboard() {
               </div>
 
             </div>
+            )}
 
-            {/* Right 5 Columns: Diagnostics Deck & Live Terminal */}
-            <div className="lg:col-span-5 flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800 bg-zinc-50/20 dark:bg-zinc-900/10">
+            {/* Right Columns: Diagnostics Deck & Live Terminal */}
+            <div className="lg:col-span-12 flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800 bg-zinc-50/20 dark:bg-zinc-900/10">
               
               {/* Hardware Pin Status Deck */}
               <div className="p-4 space-y-2.5">

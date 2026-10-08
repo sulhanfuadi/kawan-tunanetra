@@ -35,8 +35,8 @@ const int FRONT_MEDIUM_CM     = 60;
 const int FRONT_NEAR_CM       = 30;
 const int DROP_DELTA_LIMIT_CM = 15;
 const int WATER_LIMIT         = 400; // Diset ke 400 sesuai kalibrasi pengguna (ADC > 400 dianggap basah)
-const float DROP_TILT_MAX_DEG = 45.0;
-const float FALL_TILT_LIMIT_DEG = 60.0;
+const float DROP_TILT_MAX_DEG = 25.0; // Deteksi turunan aktif saat tongkat tegak (< 25°)
+const float FALL_TILT_LIMIT_DEG = 30.0; // Batas jatuh tongkat diubah ke > 30° (Alarm SOS)
 const unsigned long DROP_DEBOUNCE_MS = 200;
 const unsigned long FALL_CONFIRM_MS  = 2000;
 
@@ -917,7 +917,7 @@ void updateInputs() {
     dropConfirmed = false;
   }
 
-  // Deteksi tongkat jatuh: HANYA aktif jika MPU6050 TERHUBUNG (kemiringan > 60 deg selama > 2 detik)
+  // Deteksi tongkat jatuh: HANYA aktif jika MPU6050 TERHUBUNG (kemiringan > 30 deg selama > 2 detik)
   bool fallButton = (digitalRead(PIN_FALL_TEST) == LOW);
   bool fallCandidate = mpuConnected && (tiltDeg > FALL_TILT_LIMIT_DEG);
   if (fallCandidate) {
