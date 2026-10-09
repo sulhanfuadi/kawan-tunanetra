@@ -45,33 +45,33 @@ MPU6050 (6-Axis IMU)       ---(I2C)----->                     ---(D6+BC547)-> 85
 
 ---
 
-### System Architecture Concept Diagram
+### System Architecture Concept Diagram (v2)
 
-![KATANA System Architecture Concept](assets/konsep_diagram.png)
+![KATANA System Architecture Concept](assets/konsep_diagram_v2.png)
 
 > High-level block diagram illustrating the full signal flow: environmental sensor inputs, onboard ATmega328P processing unit, hazard priority state machine, feedback actuator outputs, and the USB serial telemetry uplink to the Next.js dashboard.
 
 ---
 
-### Physical Electronic Wiring Schematic
+### Physical Electronic Wiring Schematic (v2)
 
-![KATANA Physical Wiring Diagram](assets/wiring_diagram_riil.png)
+![KATANA Physical Wiring Diagram](assets/wiring_diagram_riil_v2.png)
 
 > Complete breadboard-level wiring schematic for the production physical hardware build. Includes pin assignments for all sensors (D2/D3 front ultrasonic, D8/D9 downward ultrasonic, A0 water sensor, I2C SDA/SCL for MPU6050), actuator driver circuits (PWM D5 motor at full 255 duty cycle, BC547 NPN transistor switch D6 for buzzer), and power distribution rails.
 
 ---
 
-### Embedded Firmware Flowchart - Physical Hardware
+### Embedded Firmware Flowchart - Physical Hardware (v2)
 
-![KATANA Firmware Flowchart (Physical)](assets/flowchart_riil.png)
+![KATANA Firmware Flowchart (Physical)](assets/flowchart_riil_v2.png)
 
 > State machine flowchart of the production firmware running on the physical Arduino Nano. Covers the `setup()` initialization sequence (baseline calibration sampling, IMU auto-address scan & bus recovery), the main `loop()` polling cycle, the deterministic hazard priority ladder evaluation, and serial override command parsing.
 
 ---
 
-### Embedded Firmware Flowchart - Wokwi Virtual Simulation
+### Embedded Firmware Flowchart - Wokwi Virtual Simulation (v2)
 
-![KATANA Firmware Flowchart (Wokwi Simulation)](assets/flowchart_simulasi.png)
+![KATANA Firmware Flowchart (Wokwi Simulation)](assets/flowchart_simulasi_v2.png)
 
 > Adapted flowchart for the Wokwi virtual simulation runtime. Highlights the differences from the physical build: simulated sensor reads, virtual actuator outputs, and the `WOKWI_SIMULATION` compile flag branch paths.
 
@@ -81,7 +81,13 @@ MPU6050 (6-Axis IMU)       ---(I2C)----->                     ---(D6+BC547)-> 85
 
 ```text
 katana/
-|-- assets/                   # Architectural blueprints, schematics, and flowcharts
+|-- assets/                   # Architectural blueprints, schematics, and flowcharts (v2)
+|   |-- blueprint.png         # Mechanical blueprint and 2D CAD dimensions
+|   |-- konsep_diagram_v2.png # System architecture concept diagram (v2)
+|   |-- wiring_diagram_riil_v2.png # Physical electronic schematic & pin mapping (v2)
+|   |-- flowchart_riil_v2.png # Production hardware embedded firmware flowchart (v2)
+|   |-- flowchart_simulasi_v2.png # Virtual Wokwi simulation runtime flowchart (v2)
+|   `-- katana_logo.png       # Official project emblem and logo
 |-- archive/                  # Recorded telemetry datasets & auto-archived CSV test logs
 |-- dashboard/                # Web Serial Live Telemetry Dashboard (Next.js 15, Tailwind CSS, Lucide)
 |   |-- src/app/page.tsx      # Main telemetry interface & interactive simulation controls
