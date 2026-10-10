@@ -107,6 +107,12 @@ byte mpuAddr = DEFAULT_MPU_ADDR;   // Alamat I2C MPU6050 dinamis (0x68 atau 0x69
 bool frontPinsInverted = false;    // Status apakah pin Trig/Echo depan tertukar
 bool downPinsInverted = false;     // Status apakah pin Trig/Echo bawah tertukar
 
+// Vektor Kalibrasi Fisik Tongkat Tegak (0.0° Plumb Zero)
+// Dihitung langsung dari data sensor riil pengguna: X=1.08, Y=-0.04, Z=0.99
+const float REF_X = 0.737f;
+const float REF_Y = -0.027f;
+const float REF_Z = 0.676f;
+
 bool writeMPU(byte reg, byte value) {
   Wire.beginTransmission(mpuAddr);
   Wire.write(reg);
@@ -476,7 +482,8 @@ void processSerialCommand(String cmd) {
     float ax, ay, az;
     if (readMPUAccel(ax, ay, az)) {
       float mag = sqrt(ax * ax + ay * ay + az * az);
-      float tilt = (mag > 0.05) ? acos(constrain(fabs(ax) / mag, 0.0f, 1.0f)) * 180.0 / PI : 0.0;
+      float dot = (mag > 0.05) ? (ax * REF_X + ay * REF_Y + az * REF_Z) / mag : 1.0f;
+      float tilt = acos(constrain(fabs(dot), 0.0f, 1.0f)) * 180.0 / PI;
       Serial.print(F("[IMU] X=")); Serial.print(ax, 2);
       Serial.print(F(" Y=")); Serial.print(ay, 2);
       Serial.print(F(" Z=")); Serial.print(az, 2);
@@ -784,7 +791,8 @@ void updateInputs() {
       if (readMPUAccel(ax, ay, az)) {
         float magnitude = sqrt(ax * ax + ay * ay + az * az);
         if (magnitude > 0.05) {
-          float ratio = constrain(fabs(ax) / magnitude, 0.0f, 1.0f);
+          float dot = (ax * REF_X + ay * REF_Y + az * REF_Z) / magnitude;
+          float ratio = constrain(fabs(dot), 0.0f, 1.0f);
           tiltDeg = acos(ratio) * 180.0 / PI;
         }
       } else {

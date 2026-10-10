@@ -30,6 +30,11 @@ const byte PIN_WATER_SIM = A0;    // Real: water sensor AO
 
 const byte MPU_ADDR = 0x68;
 
+// Vektor Kalibrasi Fisik Tongkat Tegak (0.0° Plumb Zero)
+const float REF_X = 0.737f;
+const float REF_Y = -0.027f;
+const float REF_Z = 0.676f;
+
 // Initial thresholds for controlled prototype testing
 const int FRONT_LOW_CM = 100;
 const int FRONT_MEDIUM_CM = 60;
@@ -231,8 +236,8 @@ void updateInputs() {
     if (readMPUAccel(ax, ay, az)) {
       float magnitude = sqrt(ax * ax + ay * ay + az * az);
       if (magnitude > 0.05) {
-        float ratio = fabs(ax) / magnitude; // Sumbu X MPU6050 sejajar dengan panjang batang tongkat
-        ratio = constrain(ratio, 0.0f, 1.0f);
+        float dot = (ax * REF_X + ay * REF_Y + az * REF_Z) / magnitude;
+        float ratio = constrain(fabs(dot), 0.0f, 1.0f);
         tiltDeg = acos(ratio) * 180.0 / PI;
       }
     }
