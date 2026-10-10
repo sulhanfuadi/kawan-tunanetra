@@ -180,19 +180,11 @@ bool readMPUAccel(float &ax, float &ay, float &az) {
   int16_t rawX = (Wire.read() << 8) | Wire.read();
   int16_t rawY = (Wire.read() << 8) | Wire.read();
   int16_t rawZ = (Wire.read() << 8) | Wire.read();
-  float rx = rawX / 16384.0f;
-  float ry = rawY / 16384.0f;
-  float rz = rawZ / 16384.0f;
-  bool swapXZ = true; // Sumbu fisik X dan Z ditukar sesuai informasi tertulis sensor
-  if (swapXZ) {
-    ax = rz; // Sumbu fisik Z dipetakan ke X (panjang batang tongkat)
-    ay = ry;
-    az = rx; // Sumbu fisik X dipetakan ke Z (muka depan)
-  } else {
-    ax = rx;
-    ay = ry;
-    az = rz;
-  }
+  // Kalibrasi Fisik: Sumbu fisik Z sejajar panjang batang tongkat (ax)
+  // Sumbu fisik X menghadap tegak lurus ke depan (az), Sumbu Y melintang (ay)
+  ax = rawZ / 16384.0f;
+  ay = rawY / 16384.0f;
+  az = rawX / 16384.0f;
   return true;
 }
 
