@@ -113,6 +113,10 @@ export default function Cane3DVisualizer({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const yawGroupRef = useRef<THREE.Group | null>(null);
+  const pitchGroupRef = useRef<THREE.Group | null>(null);
+  const rollGroupRef = useRef<THREE.Group | null>(null);
+  const twistGroupRef = useRef<THREE.Group | null>(null);
   const caneGroupRef = useRef<THREE.Group | null>(null);
   const caneManipulatorRef = useRef<THREE.Mesh | null>(null);
   const imuMountGroupRef = useRef<THREE.Group | null>(null);
@@ -122,9 +126,11 @@ export default function Cane3DVisualizer({
   // Active Tab & Interaction Mode
   const [activeTab, setActiveTab] = useState<"wizard" | "finetune" | "profiles">("wizard");
   const [interactMode, setInteractMode] = useState<"orbit" | "dragCane">("orbit");
+  const [dragSubMode, setDragSubMode] = useState<"pitchRoll" | "yaw" | "twist">("pitchRoll");
   const [draggedPitch, setDraggedPitch] = useState<number>(15);
   const [draggedRoll, setDraggedRoll] = useState<number>(0);
   const [draggedYaw, setDraggedYaw] = useState<number>(0);
+  const [draggedTwist, setDraggedTwist] = useState<number>(0);
   const [isCanePosed, setIsCanePosed] = useState<boolean>(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
@@ -189,8 +195,8 @@ export default function Cane3DVisualizer({
   });
 
   const dragButtonRef = useRef<number>(0);
-  const targetRotationRef = useRef<{ pitch: number; roll: number; yaw: number }>({ pitch: 0, roll: 0, yaw: 0 });
-  const currentRotationRef = useRef<{ pitch: number; roll: number; yaw: number }>({ pitch: 0, roll: 0, yaw: 0 });
+  const targetRotationRef = useRef<{ pitch: number; roll: number; yaw: number; twist: number }>({ pitch: 0, roll: 0, yaw: 0, twist: 0 });
+  const currentRotationRef = useRef<{ pitch: number; roll: number; yaw: number; twist: number }>({ pitch: 0, roll: 0, yaw: 0, twist: 0 });
 
   // Load from LocalStorage on mount
   useEffect(() => {
@@ -274,16 +280,18 @@ export default function Cane3DVisualizer({
       targetRotationRef.current = {
         pitch: THREE.MathUtils.degToRad(draggedPitch),
         roll: THREE.MathUtils.degToRad(draggedRoll),
-        yaw: THREE.MathUtils.degToRad(draggedYaw)
+        yaw: THREE.MathUtils.degToRad(draggedYaw),
+        twist: THREE.MathUtils.degToRad(draggedTwist + clampTwist)
       };
     } else {
       targetRotationRef.current = {
         pitch: THREE.MathUtils.degToRad(effectivePitch),
         roll: THREE.MathUtils.degToRad(effectiveRoll),
-        yaw: 0
+        yaw: 0,
+        twist: THREE.MathUtils.degToRad(clampTwist)
       };
     }
-  }, [interactMode, draggedPitch, draggedRoll, draggedYaw, effectivePitch, effectiveRoll]);
+  }, [interactMode, draggedPitch, draggedRoll, draggedYaw, draggedTwist, clampTwist, effectivePitch, effectiveRoll]);
 
   // Show/Hide 3D Manipulator Handle
   useEffect(() => {
@@ -606,17 +614,32 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     plumbLine.computeLineDistances();
     scene.add(plumbLine);
 
-    // Group for 3D Angle Zones
-    const zonesGroup = new THREE.Group();
-    zonesGroup.rotation.order = "YXZ";
-    zoneMeshesRef.current = zonesGroup;
-    scene.add(zonesGroup);
+    // 1. Hierarki Pivot Bebas Gimbal Lock:
+    // Yaw Pivot Group (memutar arah hadap 360° pada sumbu Y dunia)
+    const yawGroup = new THREE.Group();
+    yawGroupRef.current = yawGroup;
+    scene.add(yawGroup);
 
-    // 3D Cane Model
+    // Group Sektor Busur Derajat Keselamatan (menempel di yawGroup agar selalu sejalan dengan arah hadap)
+    const zonesGroup = new THREE.Group();
+    zoneMeshesRef.current = zonesGroup;
+    yawGroup.add(zonesGroup);
+
+    // 2. Pitch Pivot Group (kemiringan maju/mundur pada sumbu X lokal)
+    const pitchGroup = new THREE.Group();
+    pitchGroupRef.current = pitchGroup;
+    yawGroup.add(pitchGroup);
+
+    // 3. Roll Pivot Group (kemiringan lateral/samping pada sumbu Z lokal)
+    const rollGroup = new THREE.Group();
+    rollGroupRef.current = rollGroup;
+    pitchGroup.add(rollGroup);
+
+    // 4. Model Tongkat & Twist Poros (berputar pada poros silinder pipa tongkat)
     const caneRoot = new THREE.Group();
-    caneRoot.rotation.order = "YXZ";
     caneGroupRef.current = caneRoot;
-    scene.add(caneRoot);
+    twistGroupRef.current = caneRoot;
+    rollGroup.add(caneRoot);
 
     // Rubber Foot Tip
     const tipGeo = new THREE.CylinderGeometry(0.045, 0.06, 0.1, 16);
@@ -761,20 +784,24 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
 
       const cur = currentRotationRef.current;
       const target = targetRotationRef.current;
-      const factor = 0.15;
+      const factor = 0.2;
 
       cur.pitch += (target.pitch - cur.pitch) * factor;
       cur.roll += (target.roll - cur.roll) * factor;
       cur.yaw += (target.yaw - cur.yaw) * factor;
+      cur.twist += (target.twist - cur.twist) * factor;
 
-      if (caneGroupRef.current) {
-        caneGroupRef.current.rotation.y = cur.yaw;
-        caneGroupRef.current.rotation.x = cur.pitch;
-        caneGroupRef.current.rotation.z = cur.roll;
+      if (yawGroupRef.current) {
+        yawGroupRef.current.rotation.y = cur.yaw;
       }
-
-      if (zoneMeshesRef.current) {
-        zoneMeshesRef.current.rotation.y = cur.yaw;
+      if (pitchGroupRef.current) {
+        pitchGroupRef.current.rotation.x = cur.pitch;
+      }
+      if (rollGroupRef.current) {
+        rollGroupRef.current.rotation.z = cur.roll;
+      }
+      if (caneGroupRef.current) {
+        caneGroupRef.current.rotation.y = cur.twist;
       }
 
       renderer.render(scene, camera);
@@ -821,14 +848,20 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     prevMousePosRef.current = { x: e.clientX, y: e.clientY };
 
     if (interactMode === "dragCane") {
-      if (e.buttons === 2 || e.shiftKey) {
-        // Drag Kanan atau Shift + Drag Kiri: YAW (Putar Arah Hadap Horizontal 360°)
+      if (e.buttons === 2 || e.shiftKey || dragSubMode === "yaw") {
+        // Mode Yaw: Putar Arah Hadap Horizontal 360°
         setDraggedYaw((prev) => {
-          const next = (prev + deltaX * 0.5) % 360;
+          const next = (prev + deltaX * 0.6) % 360;
           return next < 0 ? next + 360 : Math.round(next * 10) / 10;
         });
+      } else if (dragSubMode === "twist") {
+        // Mode Twist: Putar Poros Silinder Batang Tongkat
+        setDraggedTwist((prev) => {
+          const next = prev + deltaX * 0.5;
+          return Math.max(-180, Math.min(180, Math.round(next * 10) / 10));
+        });
       } else {
-        // Drag Kiri: PITCH & ROLL (Menjangkau 90° penuh hingga rebah rata di lantai)
+        // Mode Pitch & Roll: Kemiringan Bebas hingga 90° Rebah di Lantai
         setDraggedPitch((prev) => {
           const next = prev + deltaY * 0.35;
           return Math.max(-90, Math.min(90, Math.round(next * 10) / 10));
@@ -1114,27 +1147,62 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
         {/* Direct Drag-to-Align Bottom Action Dock (Unobtrusive) */}
         {interactMode === "dragCane" && (
           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur-md border border-amber-500/70 p-2.5 rounded-xl shadow-2xl flex flex-col gap-2 z-20 max-w-3xl w-[96%] sm:w-auto animate-in fade-in slide-in-from-bottom-2">
-            {/* Top row: Status, Live Telemetry, Actions */}
+            {/* Top row: Status, Sub-Mode Selector, Actions */}
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-400 font-bold text-xs">
-                  <Hand className="w-3.5 h-3.5 animate-pulse" />
-                  <span>Drag Mode</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Drag Sub-Mode Pills */}
+                <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setDragSubMode("pitchRoll")}
+                    className={`px-2.5 py-1 text-[11px] font-mono rounded flex items-center gap-1 transition-all cursor-pointer ${
+                      dragSubMode === "pitchRoll"
+                        ? "bg-amber-500 text-zinc-950 font-bold shadow-sm"
+                        : "text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    📐 Miringkan
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDragSubMode("yaw")}
+                    className={`px-2.5 py-1 text-[11px] font-mono rounded flex items-center gap-1 transition-all cursor-pointer ${
+                      dragSubMode === "yaw"
+                        ? "bg-sky-500 text-zinc-950 font-bold shadow-sm"
+                        : "text-sky-400 hover:text-sky-200"
+                    }`}
+                  >
+                    🔄 Putar Hadap (Yaw)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDragSubMode("twist")}
+                    className={`px-2.5 py-1 text-[11px] font-mono rounded flex items-center gap-1 transition-all cursor-pointer ${
+                      dragSubMode === "twist"
+                        ? "bg-purple-500 text-zinc-950 font-bold shadow-sm"
+                        : "text-purple-400 hover:text-purple-200"
+                    }`}
+                  >
+                    🌀 Pelintir Batang
+                  </button>
                 </div>
 
                 <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-300">
-                  <span className="text-zinc-400">Model:</span>
+                  <span className="text-zinc-400">Target:</span>
                   <span className="text-amber-400 font-bold">
-                    P:{draggedPitch.toFixed(1)}° R:{draggedRoll.toFixed(1)}° Y:{draggedYaw.toFixed(0)}°
+                    P:{draggedPitch.toFixed(1)}° R:{draggedRoll.toFixed(1)}°
                   </span>
-                  <span className="text-zinc-600 hidden sm:inline">|</span>
-                  <span className="text-zinc-400 hidden sm:inline">Fisik:</span>
-                  <span className="text-zinc-200 hidden sm:inline">
+                  <span className="text-sky-400 font-bold">
+                    Y:{draggedYaw.toFixed(0)}°
+                  </span>
+                  <span className="text-zinc-600 hidden md:inline">|</span>
+                  <span className="text-zinc-400 hidden md:inline">Fisik:</span>
+                  <span className="text-zinc-200 hidden md:inline">
                     {rawTiltDeg !== null ? `${rawTiltDeg.toFixed(1)}°` : "--"}
                   </span>
-                  <span className="text-zinc-600">|</span>
-                  <span className="text-zinc-400">Offset ΔP:</span>
-                  <span className="text-emerald-400 font-bold">
+                  <span className="text-zinc-600 hidden md:inline">|</span>
+                  <span className="text-zinc-400 hidden md:inline">Offset ΔP:</span>
+                  <span className="text-emerald-400 font-bold hidden md:inline">
                     {(draggedPitch - (rawTiltDeg ?? 0)).toFixed(1)}°
                   </span>
                 </div>
@@ -1163,6 +1231,60 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
               </div>
             </div>
 
+            {/* Middle row: Interactive Sliders */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-zinc-800/80 font-mono text-[11px]">
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-400">Putar Hadap (Yaw):</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="1"
+                  value={draggedYaw}
+                  onChange={(e) => {
+                    setDraggedYaw(parseFloat(e.target.value));
+                    setIsCanePosed(true);
+                  }}
+                  className="accent-sky-400 h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer w-28 sm:w-36"
+                />
+                <span className="text-sky-400 font-bold w-9">{draggedYaw.toFixed(0)}°</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-400">Kemiringan (Pitch):</span>
+                <input
+                  type="range"
+                  min="-90"
+                  max="90"
+                  step="1"
+                  value={draggedPitch}
+                  onChange={(e) => {
+                    setDraggedPitch(parseFloat(e.target.value));
+                    setIsCanePosed(true);
+                  }}
+                  className="accent-amber-400 h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer w-28 sm:w-36"
+                />
+                <span className="text-amber-400 font-bold w-9">{draggedPitch.toFixed(0)}°</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-400">Kemiringan (Roll):</span>
+                <input
+                  type="range"
+                  min="-90"
+                  max="90"
+                  step="1"
+                  value={draggedRoll}
+                  onChange={(e) => {
+                    setDraggedRoll(parseFloat(e.target.value));
+                    setIsCanePosed(true);
+                  }}
+                  className="accent-emerald-400 h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer w-24 sm:w-28"
+                />
+                <span className="text-emerald-400 font-bold w-9">{draggedRoll.toFixed(0)}°</span>
+              </div>
+            </div>
+
             {/* Bottom row: Quick Preset Pose & Yaw Buttons */}
             <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-zinc-800 text-[10px] font-mono">
               <span className="text-zinc-400 font-bold">Pose Cepat:</span>
@@ -1173,7 +1295,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
                   setDraggedRoll(0);
                   setIsCanePosed(true);
                 }}
-                className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors"
+                className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors cursor-pointer"
                 title="Tegakkan tongkat lurus 0° vertikal"
               >
                 0° Tegak
@@ -1185,7 +1307,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
                   setDraggedRoll(0);
                   setIsCanePosed(true);
                 }}
-                className="px-2 py-0.5 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 rounded border border-emerald-800 transition-colors"
+                className="px-2 py-0.5 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 rounded border border-emerald-800 transition-colors cursor-pointer"
                 title="Pose melangkah normal 15°"
               >
                 15° Jalan
@@ -1197,7 +1319,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
                   setDraggedRoll(0);
                   setIsCanePosed(true);
                 }}
-                className="px-2 py-0.5 bg-rose-950 hover:bg-rose-900 text-rose-300 rounded border border-rose-800 transition-colors"
+                className="px-2 py-0.5 bg-rose-950 hover:bg-rose-900 text-rose-300 rounded border border-rose-800 transition-colors cursor-pointer"
                 title="Rebahkan tongkat 90° rata di lantai (kondisi jatuh)"
               >
                 90° Jatuh di Lantai
@@ -1207,35 +1329,47 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
               <span className="text-zinc-400 font-bold">Arah Hadap (Yaw):</span>
               <button
                 type="button"
-                onClick={() => setDraggedYaw(0)}
-                className={`px-1.5 py-0.5 rounded border transition-colors ${draggedYaw === 0 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
+                onClick={() => {
+                  setDraggedYaw(0);
+                  setIsCanePosed(true);
+                }}
+                className={`px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${draggedYaw === 0 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
               >
                 0° Depan
               </button>
               <button
                 type="button"
-                onClick={() => setDraggedYaw(90)}
-                className={`px-1.5 py-0.5 rounded border transition-colors ${draggedYaw === 90 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
+                onClick={() => {
+                  setDraggedYaw(90);
+                  setIsCanePosed(true);
+                }}
+                className={`px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${draggedYaw === 90 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
               >
                 90° Kanan
               </button>
               <button
                 type="button"
-                onClick={() => setDraggedYaw(180)}
-                className={`px-1.5 py-0.5 rounded border transition-colors ${draggedYaw === 180 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
+                onClick={() => {
+                  setDraggedYaw(180);
+                  setIsCanePosed(true);
+                }}
+                className={`px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${draggedYaw === 180 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
               >
                 180° Blkg
               </button>
               <button
                 type="button"
-                onClick={() => setDraggedYaw(270)}
-                className={`px-1.5 py-0.5 rounded border transition-colors ${draggedYaw === 270 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
+                onClick={() => {
+                  setDraggedYaw(270);
+                  setIsCanePosed(true);
+                }}
+                className={`px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${draggedYaw === 270 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
               >
                 270° Kiri
               </button>
 
               <span className="text-zinc-500 hidden xl:inline ml-auto">
-                🖱️ Drag Kiri: Kemiringan | Drag Kanan / Shift: Putar Hadap
+                💡 Klik tab mode di atas lalu drag di kanvas, atau geser slider langsung
               </span>
             </div>
           </div>
