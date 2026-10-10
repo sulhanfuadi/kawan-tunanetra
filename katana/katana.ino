@@ -460,7 +460,7 @@ void processSerialCommand(String cmd) {
       float ax, ay, az;
       if (readMPUAccel(ax, ay, az)) {
         Serial.print(F("TERHUBUNG pada 0x")); Serial.print(i2cAddr, HEX);
-        Serial.print(F(" (Accel Y [Batang Vertikal]: ")); Serial.print(ay, 2); Serial.println(F("g)"));
+        Serial.print(F(" (Accel X [Batang Vertikal]: ")); Serial.print(ax, 2); Serial.println(F("g)"));
       } else {
         Serial.print(F("ALAMAT 0x")); Serial.print(i2cAddr, HEX); Serial.println(F(" MERESPONS TAPI GAGAL BACA DATA"));
       }
@@ -517,7 +517,7 @@ void processSerialCommand(String cmd) {
       float ax, ay, az;
       if (readMPUAccel(ax, ay, az)) {
         float mag = sqrt(ax * ax + ay * ay + az * az);
-        float tilt = (mag > 0.05) ? acos(constrain(fabs(ay) / mag, 0.0f, 1.0f)) * 180.0 / PI : 0.0;
+        float tilt = (mag > 0.05) ? acos(constrain(fabs(ax) / mag, 0.0f, 1.0f)) * 180.0 / PI : 0.0;
         Serial.print(F("[TEST MPU6050] TERHUBUNG di 0x")); Serial.print(addr, HEX);
         Serial.print(F(" -> Accel X=")); Serial.print(ax, 2);
         Serial.print(F(" Y=")); Serial.print(ay, 2);
@@ -835,7 +835,7 @@ void updateInputs() {
       if (readMPUAccel(ax, ay, az)) {
         float magnitude = sqrt(ax * ax + ay * ay + az * az);
         if (magnitude > 0.05) {
-          float ratio = fabs(ay) / magnitude; // Sumbu Y MPU6050 sejajar dengan batang vertikal tongkat
+          float ratio = fabs(ax) / magnitude; // Sumbu X MPU6050 sejajar dengan panjang batang tongkat
           ratio = constrain(ratio, 0.0f, 1.0f);
           tiltDeg = acos(ratio) * 180.0 / PI;
         }
