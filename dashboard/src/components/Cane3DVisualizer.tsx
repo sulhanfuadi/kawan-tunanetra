@@ -422,22 +422,22 @@ export default function Cane3DVisualizer({
   // Status Keselamatan
   const safetyStatus = useMemo(() => {
     const angle = rawTiltDeg ?? 0;
-    if (angle >= 60) {
+    if (angle >= 45) {
       return {
-        label: "BAHAYA JATUH (SOS >60°)",
+        label: "BAHAYA JATUH (SOS >45°)",
         color: "bg-rose-500/20 text-rose-500 border-rose-500/40",
         icon: AlertTriangle
       };
     }
-    if (angle >= 30) {
+    if (angle >= 25) {
       return {
-        label: "MERABA TURUNAN (30°-60°)",
+        label: "MERABA TURUNAN (25°-45°)",
         color: "bg-amber-500/20 text-amber-500 border-amber-500/40",
         icon: Compass
       };
     }
     return {
-      label: "TEGAK & JALAN NORMAL (0°-30°)",
+      label: "TEGAK & JALAN NORMAL (0°-25°)",
       color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
       icon: CheckCircle2
     };
