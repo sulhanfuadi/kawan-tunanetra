@@ -195,7 +195,7 @@ The KATANA firmware includes an extensive bidirectional serial command parser. D
 | Perintah Serial | Target Pengujian | Respon Sistem yang Diharapkan |
 |---|---|---|
 | `FALL` | Simulasi Tongkat Jatuh | Kemiringan 75 deg, Buzzer alarm SOS Morse aktif, Motor mati |
-| `DROP` | Simulasi Tepi Turunan | Delta bawah +25 cm, Motor 3 denyut ("3 3 3") PWM 255 |
+| `DROP` | Simulasi Tepi Turunan | Jarak bawah 60 cm (> ambang 45 cm), Motor 3 denyut ("3 3 3") PWM 255 |
 | `WET` | Simulasi Genangan Air | Nilai air 850, Motor 2 denyut panjang ("2 2 2") PWM 255 |
 | `NEAR` | Simulasi Rintangan Dekat | Jarak depan 15 cm, Motor bergetar panjer kontinu PWM 255, Buzzer BEEP aktif |
 | `FRONT <cm>` | Override Jarak Depan | Mengatur jarak depan secara presisi (contoh: `FRONT 45`) |
@@ -232,7 +232,7 @@ The KATANA firmware includes an extensive bidirectional serial command parser. D
 | **Core Microcontroller** | ATmega328P (8-bit AVR, 16 MHz, 32KB Flash, 2KB SRAM) |
 | **Supply Voltage** | 5V DC via USB / 5V 2A portable battery bank |
 | **Front Obstacle Range** | 2 cm - 100 cm effective detection window (40 kHz ultrasonic) with auto pin-inversion detection |
-| **Drop-off Threshold** | Delta > 15 cm above ground baseline (12-sample startup calibration) |
+| **Drop-off Threshold** | Direct surface distance > 45 cm (normal flat ground ~25-38 cm) |
 | **Moisture Sensitivity** | Conductive FR-4 grid; calibrated threshold ADC > 400 (active by default) |
 | **Tilt & Inertial Sensing** | 6-Axis MPU6050 with dynamic I2C address detection (0x68/0x69) and I2C bus recovery pulse |
 | **Haptic Actuator** | Coreless vibration motor driven at full power PWM 255 (D5) with distinct rhythmic intervals |
