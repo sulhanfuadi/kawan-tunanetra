@@ -492,14 +492,20 @@ export default function DataVisualizer({
     }
 
     const values = data.map(getValue);
-    const validValues = values.filter((v): v is number => v !== null && !isNaN(v));
+    const validValues = values.filter((v): v is number => v !== null && v !== undefined && !isNaN(v) && isFinite(v));
 
-    const computedMinY = options.minY !== undefined ? options.minY : (validValues.length > 0 ? Math.min(...validValues) : 0);
-    const computedMaxY = options.maxY !== undefined ? options.maxY : (validValues.length > 0 ? Math.max(...validValues) : 100);
-    const ySpan = Math.max(1, computedMaxY - computedMinY);
+    const computedMinY = options.minY !== undefined && !isNaN(options.minY) ? options.minY : (validValues.length > 0 ? Math.min(...validValues) : 0);
+    const computedMaxY = options.maxY !== undefined && !isNaN(options.maxY) ? options.maxY : (validValues.length > 0 ? Math.max(...validValues) : 100);
+    const ySpan = Math.max(1, (isNaN(computedMaxY) ? 100 : computedMaxY) - (isNaN(computedMinY) ? 0 : computedMinY));
 
-    const getX = (idx: number) => padLeft + (idx / (data.length - 1)) * plotW;
-    const getY = (val: number) => padTop + plotH - ((val - computedMinY) / ySpan) * plotH;
+    const getX = (idx: number) => {
+      if (data.length <= 1) return padLeft;
+      return padLeft + (idx / (data.length - 1)) * plotW;
+    };
+    const getY = (val: number) => {
+      if (val === null || val === undefined || isNaN(val) || !isFinite(val)) return padTop + plotH;
+      return padTop + plotH - ((val - computedMinY) / ySpan) * plotH;
+    };
 
     // Generate path points
     let pathD = "";
@@ -508,10 +514,11 @@ export default function DataVisualizer({
 
     data.forEach((r, idx) => {
       const val = getValue(r);
-      if (val === null || isNaN(val)) return;
+      if (val === null || val === undefined || isNaN(val) || !isFinite(val)) return;
 
       const x = getX(idx);
       const y = Math.max(padTop, Math.min(padTop + plotH, getY(val)));
+      if (isNaN(x) || isNaN(y) || !isFinite(x) || !isFinite(y)) return;
 
       if (!firstValid) {
         pathD += `M ${x.toFixed(1)} ${y.toFixed(1)}`;
@@ -529,9 +536,20 @@ export default function DataVisualizer({
     }
 
     const hoveredRecord = hoveredPointIdx !== null && hoveredPointIdx < data.length ? data[hoveredPointIdx] : null;
-    const hoveredVal = hoveredRecord ? getValue(hoveredRecord) : null;
-    const hoveredX = hoveredPointIdx !== null ? getX(hoveredPointIdx) : null;
-    const hoveredY = hoveredVal !== null ? getY(hoveredVal) : null;
+    const rawHoveredVal = hoveredRecord ? getValue(hoveredRecord) : null;
+    const hoveredVal =
+      rawHoveredVal !== null && rawHoveredVal !== undefined && !isNaN(rawHoveredVal) && isFinite(rawHoveredVal)
+        ? Number(rawHoveredVal)
+        : null;
+    const rawHoveredX = hoveredPointIdx !== null && !isNaN(hoveredPointIdx) ? getX(hoveredPointIdx) : null;
+    const rawHoveredY = hoveredVal !== null ? getY(hoveredVal) : null;
+
+    const hoveredX =
+      rawHoveredX !== null && !isNaN(rawHoveredX) && isFinite(rawHoveredX) ? rawHoveredX : null;
+    const hoveredY =
+      rawHoveredY !== null && !isNaN(rawHoveredY) && isFinite(rawHoveredY) ? rawHoveredY : null;
+
+    const canRenderCrosshair = hoveredX !== null && hoveredY !== null;
 
     return (
       <div className="relative select-none">
@@ -628,20 +646,20 @@ export default function DataVisualizer({
           )}
 
           {/* Interactive Crosshair & Point */}
-          {hoveredX !== null && hoveredY !== null && (
+          {canRenderCrosshair && (
             <g className="pointer-events-none">
               <line
-                x1={hoveredX}
+                x1={hoveredX!}
                 y1={padTop}
-                x2={hoveredX}
+                x2={hoveredX!}
                 y2={padTop + plotH}
                 className="stroke-zinc-400 dark:stroke-zinc-500"
                 strokeWidth="1"
                 strokeDasharray="2 2"
               />
               <circle
-                cx={hoveredX}
-                cy={hoveredY}
+                cx={hoveredX!}
+                cy={hoveredY!}
                 r="4.5"
                 fill={options.color}
                 className="stroke-white dark:stroke-zinc-950"
@@ -664,7 +682,7 @@ export default function DataVisualizer({
             textAnchor="end"
             className="fill-zinc-400 text-[9px] font-mono select-none"
           >
-            T={data[data.length - 1]?.elapsedSec?.toFixed(1) ?? "0"}s
+            T={typeof data[data.length - 1]?.elapsedSec === "number" ? data[data.length - 1].elapsedSec.toFixed(1) : "0"}s
           </text>
         </svg>
 
@@ -674,13 +692,13 @@ export default function DataVisualizer({
             className="absolute top-1 right-3 px-2 py-1 rounded bg-zinc-900/90 dark:bg-white/90 text-white dark:text-zinc-900 text-[10px] font-mono pointer-events-none shadow-md backdrop-blur-xs flex items-center gap-2 border border-zinc-700/50"
           >
             <span className="font-bold">
-              #{hoveredRecord.no} (T+{hoveredRecord.elapsedSec.toFixed(1)}s):
+              #{hoveredRecord.no ?? hoveredPointIdx + 1} (T+{Number(hoveredRecord.elapsedSec ?? 0).toFixed(1)}s):
             </span>
             <span className="font-extrabold" style={{ color: options.color }}>
               {hoveredVal.toFixed(1)} {options.unit}
             </span>
             <span className="text-[9px] text-zinc-400 dark:text-zinc-600">
-              [{hoveredRecord.state}]
+              [{hoveredRecord.state || "NORMAL"}]
             </span>
           </div>
         )}
@@ -777,9 +795,16 @@ export default function DataVisualizer({
 
     const hoveredRecord = hoveredPointIdx !== null && hoveredPointIdx < data.length ? data[hoveredPointIdx] : null;
     const hoveredCode = hoveredRecord ? resolveStateCode(hoveredRecord) : 0;
-    const hoveredX = hoveredPointIdx !== null ? getX(hoveredPointIdx) : null;
-    const hoveredY = hoveredRecord ? getY(hoveredCode) : null;
+    const rawHoveredX = hoveredPointIdx !== null && !isNaN(hoveredPointIdx) ? getX(hoveredPointIdx) : null;
+    const rawHoveredY = hoveredRecord && !isNaN(hoveredCode) ? getY(hoveredCode) : null;
+
+    const hoveredX =
+      rawHoveredX !== null && !isNaN(rawHoveredX) && isFinite(rawHoveredX) ? rawHoveredX : null;
+    const hoveredY =
+      rawHoveredY !== null && !isNaN(rawHoveredY) && isFinite(rawHoveredY) ? rawHoveredY : null;
     const hoveredColor = hoveredRecord ? getStateColor(hoveredRecord.state) : "#10b981";
+
+    const canRenderStateCrosshair = hoveredX !== null && hoveredY !== null && Boolean(hoveredRecord);
 
     return (
       <div className="relative select-none">
@@ -872,6 +897,7 @@ export default function DataVisualizer({
 
             const cx = getX(idx);
             const cy = getY(code);
+            if (isNaN(cx) || isNaN(cy) || !isFinite(cx) || !isFinite(cy)) return null;
             const col = getStateColor(r.state);
 
             return (
@@ -888,7 +914,7 @@ export default function DataVisualizer({
           })}
 
           {/* Interactive Crosshair & Point */}
-          {hoveredX !== null && hoveredY !== null && hoveredRecord && (
+          {canRenderStateCrosshair && (
             <g className="pointer-events-none">
               <line
                 x1={hoveredX}
@@ -1254,7 +1280,10 @@ export default function DataVisualizer({
             </div>
             {renderSvgLineChart(
               displayRecords,
-              (r) => (typeof r.frontCm === "number" ? r.frontCm : parseFloat(r.frontCm as string)),
+              (r) => {
+                const val = typeof r.frontCm === "number" ? r.frontCm : parseFloat(String(r.frontCm));
+                return isNaN(val) || !isFinite(val) ? null : val;
+              },
               {
                 color: "#10b981",
                 minY: 0,
@@ -1284,7 +1313,10 @@ export default function DataVisualizer({
             </div>
             {renderSvgLineChart(
               displayRecords,
-              (r) => (typeof r.deltaDownCm === "number" ? r.deltaDownCm : parseFloat(r.deltaDownCm as string)),
+              (r) => {
+                const val = typeof r.deltaDownCm === "number" ? r.deltaDownCm : parseFloat(String(r.deltaDownCm));
+                return isNaN(val) || !isFinite(val) ? null : val;
+              },
               {
                 color: "#0284c7",
                 minY: 0,
@@ -1313,7 +1345,10 @@ export default function DataVisualizer({
             </div>
             {renderSvgLineChart(
               displayRecords,
-              (r) => (typeof r.tiltDeg === "number" ? r.tiltDeg : parseFloat(r.tiltDeg as string)),
+              (r) => {
+                const val = typeof r.tiltDeg === "number" ? r.tiltDeg : parseFloat(String(r.tiltDeg));
+                return isNaN(val) || !isFinite(val) ? null : val;
+              },
               {
                 color: "#8b5cf6",
                 minY: 0,
@@ -1342,7 +1377,10 @@ export default function DataVisualizer({
             </div>
             {renderSvgLineChart(
               displayRecords,
-              (r) => (typeof r.waterVal === "number" ? r.waterVal : parseInt(r.waterVal as string, 10)),
+              (r) => {
+                const val = typeof r.waterVal === "number" ? r.waterVal : parseInt(String(r.waterVal), 10);
+                return isNaN(val) || !isFinite(val) ? null : val;
+              },
               {
                 color: "#3b82f6",
                 minY: 0,
