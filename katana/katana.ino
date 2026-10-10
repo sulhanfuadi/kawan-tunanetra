@@ -107,6 +107,15 @@ byte mpuAddr = DEFAULT_MPU_ADDR;   // Alamat I2C MPU6050 dinamis (0x68 atau 0x69
 bool frontPinsInverted = false;    // Status apakah pin Trig/Echo depan tertukar
 bool downPinsInverted = false;     // Status apakah pin Trig/Echo bawah tertukar
 
+// Konfigurasi & Kalibrasi Orientasi IMU MPU6050
+bool swapXZ = true;                // Default TRUE: Sumbu fisik X dan Z ditukar sesuai informasi tertulis sensor
+float refX  = 1.0f;                // Vektor referensi tongkat tegak lurus (0.0° Plumb Zero)
+float refY  = 0.0f;
+float refZ  = 0.0f;
+float lastAx = 0.0f;               // Cache akselerasi terkini untuk diagnostik telemetri
+float lastAy = 0.0f;
+float lastAz = 1.0f;
+
 bool writeMPU(byte reg, byte value) {
   Wire.beginTransmission(mpuAddr);
   Wire.write(reg);
@@ -206,9 +215,18 @@ bool readMPUAccel(float &ax, float &ay, float &az) {
   int16_t rawX = (Wire.read() << 8) | Wire.read();
   int16_t rawY = (Wire.read() << 8) | Wire.read();
   int16_t rawZ = (Wire.read() << 8) | Wire.read();
-  ax = rawX / 16384.0;
-  ay = rawY / 16384.0;
-  az = rawZ / 16384.0;
+  float rx = rawX / 16384.0f;
+  float ry = rawY / 16384.0f;
+  float rz = rawZ / 16384.0f;
+  if (swapXZ) {
+    ax = rz; // Sumbu fisik Z dipetakan ke X (panjang batang tongkat)
+    ay = ry;
+    az = rx; // Sumbu fisik X dipetakan ke Z (muka depan breadboard)
+  } else {
+    ax = rx;
+    ay = ry;
+    az = rz;
+  }
   return true;
 }
 
@@ -517,12 +535,17 @@ void processSerialCommand(String cmd) {
       float ax, ay, az;
       if (readMPUAccel(ax, ay, az)) {
         float mag = sqrt(ax * ax + ay * ay + az * az);
-        float tilt = (mag > 0.05) ? acos(constrain(fabs(ax) / mag, 0.0f, 1.0f)) * 180.0 / PI : 0.0;
+        float refMag = sqrt(refX * refX + refY * refY + refZ * refZ);
+        float dot = (mag > 0.05 && refMag > 0.05) ? (ax * refX + ay * refY + az * refZ) / (mag * refMag) : 1.0f;
+        float tilt = acos(constrain(fabs(dot), 0.0f, 1.0f)) * 180.0 / PI;
         Serial.print(F("[TEST MPU6050] TERHUBUNG di 0x")); Serial.print(addr, HEX);
-        Serial.print(F(" -> Accel X=")); Serial.print(ax, 2);
-        Serial.print(F(" Y=")); Serial.print(ay, 2);
-        Serial.print(F(" Z=")); Serial.print(az, 2);
-        Serial.print(F(" | Sudut Kemiringan: ")); Serial.print(tilt, 1); Serial.println(F("°"));
+        Serial.print(F(" (SwapXZ=")); Serial.print(swapXZ ? F("ON") : F("OFF"));
+        Serial.print(F(") -> Accel X=")); Serial.print(ax, 2);
+        Serial.print(F("g Y=")); Serial.print(ay, 2);
+        Serial.print(F("g Z=")); Serial.print(az, 2);
+        Serial.print(F("g | Kemiringan: ")); Serial.print(tilt, 1); Serial.println(F("°"));
+        Serial.print(F("  [INFO] Sumbu batang tongkat: "));
+        Serial.println(swapXZ ? F("Z fisik (dipetakan ke X)") : F("X fisik"));
       } else {
         Serial.print(F("[TEST MPU6050] ALAMAT 0x")); Serial.print(addr, HEX);
         Serial.println(F(" MERESPONS TAPI GAGAL BACA REGISTER DATA"));
@@ -535,6 +558,51 @@ void processSerialCommand(String cmd) {
       Serial.println(F("  3. Pastikan VCC modul ke pin 5V Nano (jangan ke 3.3V)."));
       Serial.println(F("  4. Periksa apakah lampu LED merah/hijau di papan modul GY-521 menyala terang."));
     }
+    return;
+  }
+
+  if (upper == "SWAP XZ" || upper == "SWAP:XZ" || upper == "TUKAR XZ") {
+    swapXZ = !swapXZ;
+    Serial.print(F("[IMU CONFIG] Pertukaran Sumbu Fisik X & Z sekarang: "));
+    Serial.println(swapXZ ? F("AKTIF (Sumbu fisik Z -> Batang Vertikal X)") : F("NONAKTIF (Sumbu fisik X -> Batang Vertikal)"));
+    return;
+  }
+
+  if (upper == "CALIBRATE" || upper == "CALIBRATE ZERO" || upper == "SET UPRIGHT" || upper == "ZERO") {
+    float ax, ay, az;
+    if (readMPUAccel(ax, ay, az)) {
+      float m = sqrt(ax * ax + ay * ay + az * az);
+      if (m > 0.1) {
+        refX = ax / m;
+        refY = ay / m;
+        refZ = az / m;
+        Serial.print(F("[IMU KALIBRASI] Berhasil merekam vektor tegak nol (0° Plumb Line):"));
+        Serial.print(F(" refX=")); Serial.print(refX, 3);
+        Serial.print(F(" refY=")); Serial.print(refY, 3);
+        Serial.print(F(" refZ=")); Serial.print(refZ, 3);
+        Serial.println(F(" -> Tongkat sekarang terkalibrasi 0.0°!"));
+        return;
+      }
+    }
+    Serial.println(F("[IMU KALIBRASI] GAGAL: Sensor IMU tidak terhubung!"));
+    return;
+  }
+
+  if (upper == "AXIS X" || upper == "AXIS:X") {
+    refX = 1.0f; refY = 0.0f; refZ = 0.0f;
+    Serial.println(F("[IMU CONFIG] Sumbu tegak tongkat diset ke: SUMBU X"));
+    return;
+  }
+
+  if (upper == "AXIS Y" || upper == "AXIS:Y") {
+    refX = 0.0f; refY = 1.0f; refZ = 0.0f;
+    Serial.println(F("[IMU CONFIG] Sumbu tegak tongkat diset ke: SUMBU Y"));
+    return;
+  }
+
+  if (upper == "AXIS Z" || upper == "AXIS:Z") {
+    refX = 0.0f; refY = 0.0f; refZ = 1.0f;
+    Serial.println(F("[IMU CONFIG] Sumbu tegak tongkat diset ke: SUMBU Z"));
     return;
   }
 
@@ -833,10 +901,14 @@ void updateInputs() {
     float ax = 0.0, ay = 0.0, az = 1.0;
     if (mpuConnected) {
       if (readMPUAccel(ax, ay, az)) {
+        lastAx = ax;
+        lastAy = ay;
+        lastAz = az;
         float magnitude = sqrt(ax * ax + ay * ay + az * az);
-        if (magnitude > 0.05) {
-          float ratio = fabs(ax) / magnitude; // Sumbu X MPU6050 sejajar dengan panjang batang tongkat
-          ratio = constrain(ratio, 0.0f, 1.0f);
+        float refMag    = sqrt(refX * refX + refY * refY + refZ * refZ);
+        if (magnitude > 0.05 && refMag > 0.05) {
+          float dot = (ax * refX + ay * refY + az * refZ) / (magnitude * refMag);
+          float ratio = constrain(fabs(dot), 0.0f, 1.0f);
           tiltDeg = acos(ratio) * 180.0 / PI;
         }
       } else {
@@ -1165,7 +1237,13 @@ void loop() {
       if (mpuConnected) {
         Serial.print(F("RIIL("));
         Serial.print(tiltDeg, 1);
-        Serial.print(F("°) "));
+        Serial.print(F("°)[X:"));
+        Serial.print(lastAx, 2);
+        Serial.print(F(" Y:"));
+        Serial.print(lastAy, 2);
+        Serial.print(F(" Z:"));
+        Serial.print(lastAz, 2);
+        Serial.print(F("] "));
       } else {
         Serial.print(F("LEPAS "));
       }

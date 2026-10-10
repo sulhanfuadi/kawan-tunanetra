@@ -180,9 +180,19 @@ bool readMPUAccel(float &ax, float &ay, float &az) {
   int16_t rawX = (Wire.read() << 8) | Wire.read();
   int16_t rawY = (Wire.read() << 8) | Wire.read();
   int16_t rawZ = (Wire.read() << 8) | Wire.read();
-  ax = rawX / 16384.0;
-  ay = rawY / 16384.0;
-  az = rawZ / 16384.0;
+  float rx = rawX / 16384.0f;
+  float ry = rawY / 16384.0f;
+  float rz = rawZ / 16384.0f;
+  bool swapXZ = true; // Sumbu fisik X dan Z ditukar sesuai informasi tertulis sensor
+  if (swapXZ) {
+    ax = rz; // Sumbu fisik Z dipetakan ke X (panjang batang tongkat)
+    ay = ry;
+    az = rx; // Sumbu fisik X dipetakan ke Z (muka depan)
+  } else {
+    ax = rx;
+    ay = ry;
+    az = rz;
+  }
   return true;
 }
 

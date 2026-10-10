@@ -482,7 +482,7 @@ export default function Cane3DVisualizer({
     const configSnippet = `// ========================================================
 // KATANA SMART CANE - IMU MPU6050 CALIBRATION CONFIGURATION
 // Posisi Fisik: Muka Depan Batang Tongkat (+Z), ~70 cm dari bawah
-// Orientasi Sumbu: X (Vertikal Panjang Batang Tongkat), Y (Melintang Breadboard), Z (Tegak Lurus Depan)
+// Orientasi Sumbu: Sumbu Fisik Z dipetakan ke X (Vertikal Panjang Batang), Y (Melintang Breadboard), Sumbu Fisik X dipetakan ke Z (Muka Depan)
 // Dihasilkan dari Web Dashboard Katana 3D Calibration Lab
 // ========================================================
 
