@@ -34,7 +34,7 @@ const byte MPU_ADDR = 0x68;
 const int FRONT_LOW_CM = 100;
 const int FRONT_MEDIUM_CM = 60;
 const int FRONT_NEAR_CM = 30;
-const int DROP_DELTA_LIMIT_CM = 15;
+const int DOWN_DROP_THRESHOLD_CM = 45; // Ambang batas langsung sensor ke tanah
 const int WATER_LIMIT = 650;
 const float DROP_TILT_MAX_DEG = 45.0;
 const float FALL_TILT_LIMIT_DEG = 60.0;
@@ -57,9 +57,7 @@ unsigned long fallStartMs = 0;
 unsigned long lastReportMs = 0;
 
 float frontCm = 400.0;
-int dropDeltaCm = 0;
 float downCm = 30.0;
-float downBaselineCm = 30.0;
 int waterValue = 0;
 float tiltDeg = 0.0;
 bool dropConfirmed = false;
@@ -105,7 +103,7 @@ void processSerialCommand(String cmd) {
   }
   if (upper == "DROP" || upper == "DEMO:DROP") {
     demoMode = true;
-    simDownCm = downBaselineCm + 25.0;
+    simDownCm = 60.0;
     simTiltDeg = 15.0;
     Serial.println(F("[SISTEM] Skenario: Tepi Turunan"));
     return;
@@ -224,15 +222,11 @@ void updateInputs() {
     downCm = simDownCm;
     tiltDeg = simTiltDeg;
     waterValue = simWaterVal;
-    dropDeltaCm = (int)(downCm - downBaselineCm);
-    if (dropDeltaCm < 0) dropDeltaCm = 0;
   } else {
     frontCm = readUltrasonicCm(PIN_FRONT_TRIG, PIN_FRONT_ECHO);
     delayMicroseconds(2500); // reduce cross-talk between the two ultrasonic modules
     downCm = readUltrasonicCm(PIN_DOWN_TRIG, PIN_DOWN_ECHO);
     waterValue = analogRead(PIN_WATER_SIM);
-    dropDeltaCm = (int)(downCm - downBaselineCm);
-    if (dropDeltaCm < 0) dropDeltaCm = 0;
 
     float ax = 0.0, ay = 0.0, az = 1.0;
     if (readMPUAccel(ax, ay, az)) {
@@ -246,7 +240,7 @@ void updateInputs() {
   }
 
   // Suppress a false drop alert when the user intentionally lifts/tilts the cane.
-  bool dropCandidate = dropDeltaCm > DROP_DELTA_LIMIT_CM && tiltDeg < DROP_TILT_MAX_DEG;
+  bool dropCandidate = downCm > DOWN_DROP_THRESHOLD_CM && tiltDeg < DROP_TILT_MAX_DEG;
   if (dropCandidate) {
     if (dropStartMs == 0) dropStartMs = now;
     dropConfirmed = (now - dropStartMs >= DROP_DEBOUNCE_MS);
@@ -378,13 +372,9 @@ void loop() {
     Serial.print(stateName(activeState));
     Serial.print(F(" | depan="));
     Serial.print(frontCm, 0);
-    Serial.print(F("cm | delta_bawah="));
-    Serial.print(dropDeltaCm);
-    Serial.print(F("cm (jarak="));
+    Serial.print(F("cm | bawah="));
     Serial.print(downCm, 0);
-    Serial.print(F("; baseline="));
-    Serial.print(downBaselineCm, 0);
-    Serial.print(F(")"));
+    Serial.print(F("cm"));
     Serial.print(F(" | air="));
     Serial.print(waterValue);
     Serial.print(F(" | tilt="));

@@ -32,7 +32,7 @@ const byte DEFAULT_MPU_ADDR = 0x68;   // Alamat I2C MPU6050 default (A4=SDA, A5=
 const int FRONT_LOW_CM        = 100;
 const int FRONT_MEDIUM_CM     = 60;
 const int FRONT_NEAR_CM       = 30;
-const int DROP_DELTA_LIMIT_CM = 15;
+const int DOWN_DROP_THRESHOLD_CM = 45; // Ambang batas langsung sensor ke tanah (normal lantai ~25-38 cm, turunan/lubang > 45 cm)
 const int WATER_LIMIT         = 400; // Diset ke 400 sesuai kalibrasi pengguna (ADC > 400 dianggap basah)
 const float DROP_TILT_MAX_DEG = 45.0;
 const float FALL_TILT_LIMIT_DEG = 60.0;
@@ -70,8 +70,6 @@ bool waterSensorInstalled = true;
 
 float frontCm = -1.0;
 float downCm  = -1.0;
-int dropDeltaCm = 0;
-float downBaselineCm = 30.0;
 int waterValue = 0;
 float tiltDeg = -1.0;
 
@@ -310,20 +308,15 @@ float readDownUltrasonic(bool &connected) {
   }
 }
 
-void calibrateDownBaseline() {
-  float total = 0.0;
-  byte valid = 0;
+void checkDownSensorBoot() {
   bool isConn = false;
-  for (byte i = 0; i < 12; i++) {
-    float value = readDownUltrasonic(isConn);
-    if (isConn && value >= 5.0 && value <= 120.0) {
-      total += value;
-      valid++;
-    }
-    delay(35);
-  }
-  if (valid >= 6) {
-    downBaselineCm = total / valid;
+  float val = readDownUltrasonic(isConn);
+  if (isConn && val > 0) {
+    Serial.print(F("OK (Jarak Permukaan Awal: "));
+    Serial.print(val, 0);
+    Serial.println(F(" cm)"));
+  } else {
+    Serial.println(F("SIAP (Menunggu pantulan lantai)"));
   }
 }
 
@@ -408,9 +401,9 @@ void processSerialCommand(String cmd) {
 
   if (upper == "DROP" || upper == "DEMO:DROP") {
     demoMode = true;
-    simDownCm = downBaselineCm + 25.0;
+    simDownCm = 60.0;
     simTiltDeg = 15.0;
-    Serial.println(F("[SISTEM] PRESET AKTIF: Tepi Turunan / Lubang (+25cm delta)"));
+    Serial.println(F("[SISTEM] PRESET AKTIF: Tepi Turunan / Lubang (Jarak Bawah 60 cm > ambang 45 cm)"));
     return;
   }
 
@@ -693,7 +686,7 @@ void processSerialCommand(String cmd) {
     demoMode = false;
     overridePatternUntilMs = 0;
     simFrontCm = 120.0;
-    simDownCm = downBaselineCm;
+    simDownCm = 30.0;
     simTiltDeg = 12.0;
     simWaterVal = 180;
     Serial.println(F("[SISTEM] KEMBALI KE SENSOR FISIK ASLI"));
@@ -778,9 +771,6 @@ void updateInputs() {
     downCm      = simDownCm;
     tiltDeg     = simTiltDeg;
     waterValue  = simWaterVal;
-
-    dropDeltaCm = (int)(downCm - downBaselineCm);
-    if (dropDeltaCm < 0) dropDeltaCm = 0;
   } else {
     // Mode Fisik Nyata: Baca sensor fisik
     // 1. Baca sensor depan
@@ -789,14 +779,6 @@ void updateInputs() {
     
     // 2. Baca sensor bawah (dengan deteksi otomatis pin D8/D9)
     downCm = readDownUltrasonic(downConnected);
-    
-    // Hitung delta bawah hanya jika sensor bawah terhubung
-    if (downConnected) {
-      dropDeltaCm = (int)(downCm - downBaselineCm);
-      if (dropDeltaCm < 0) dropDeltaCm = 0;
-    } else {
-      dropDeltaCm = 0;
-    }
 
     // 3. Baca sensor air (Pin A0)
     if (waterSensorInstalled) {
@@ -834,7 +816,8 @@ void updateInputs() {
   }
 
   // Filter deteksi turunan: HANYA aktif jika sensor bawah benar-benar TERHUBUNG (bukan lepas)
-  bool dropCandidate = downConnected && (dropDeltaCm > DROP_DELTA_LIMIT_CM) && (!mpuConnected || tiltDeg < DROP_TILT_MAX_DEG);
+  // On-Point: Jarak langsung sensor ke permukaan bawah melebihi batas normal lantai (> 45 cm)
+  bool dropCandidate = downConnected && (downCm > DOWN_DROP_THRESHOLD_CM) && (!mpuConnected || tiltDeg < DROP_TILT_MAX_DEG);
   if (dropCandidate) {
     if (dropStartMs == 0) dropStartMs = now;
     dropConfirmed = (now - dropStartMs >= DROP_DEBOUNCE_MS);
@@ -1063,12 +1046,9 @@ void setup() {
     Serial.println(F("LEPAS/GAGAL (Bus I2C A4/A5 tidak merespons)"));
   }
 
-  // Kalibrasi ultrasonik bawah
-  Serial.print(F("[BOOT] Mengkalibrasi Sensor Bawah (Pin 8/9)... "));
-  calibrateDownBaseline();
-  Serial.print(F("Baseline: "));
-  Serial.print(downBaselineCm, 1);
-  Serial.println(F(" cm"));
+  // Diagnosa kesiapan sensor ultrasonik bawah (On-Point Surface Detection)
+  Serial.print(F("[BOOT] Mengecek Sensor Bawah (Pin 8/9)... "));
+  checkDownSensorBoot();
 
   // Uji aktuator getar dan buzzer
   Serial.print(F("[BOOT] Uji Coba Aktuator (Self-Test)... "));
