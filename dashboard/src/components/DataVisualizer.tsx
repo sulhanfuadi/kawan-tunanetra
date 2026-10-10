@@ -276,6 +276,8 @@ export default function DataVisualizer({
     const downVals = rawDataset
       .map((r) => (typeof r.downCm === "number" ? r.downCm : parseFloat(r.downCm as string)))
       .filter((v) => !isNaN(v) && v > 0);
+    const maxDown = downVals.length > 0 ? Math.max(...downVals).toFixed(0) : "-";
+    const avgDown = downVals.length > 0 ? (downVals.reduce((a, b) => a + b, 0) / downVals.length).toFixed(1) : "-";
     const maxDeltaDown = rawDataset
       .map((r) => (typeof r.deltaDownCm === "number" ? r.deltaDownCm : parseFloat(r.deltaDownCm as string)))
       .filter((v) => !isNaN(v));
@@ -317,6 +319,8 @@ export default function DataVisualizer({
       durationStr: `${m}:${s}`,
       avgFront,
       minFront,
+      maxDown,
+      avgDown,
       peakDelta,
       avgTilt,
       maxTilt,
@@ -1203,14 +1207,14 @@ export default function DataVisualizer({
           {/* KPI 3 */}
           <div className="p-3 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-1 shadow-2xs">
             <div className="flex items-center justify-between text-zinc-400">
-              <span className="text-[10px] font-mono uppercase font-semibold">Turunan (Δ)</span>
+              <span className="text-[10px] font-mono uppercase font-semibold">Jarak Bawah Maks</span>
               <TrendingDown className="w-3.5 h-3.5 text-sky-500" />
             </div>
             <div className="text-xl font-black font-mono tracking-tight text-zinc-900 dark:text-zinc-100">
-              +{metrics.peakDelta} <span className="text-xs text-zinc-400 font-normal">cm</span>
+              {metrics.maxDown} <span className="text-xs text-zinc-400 font-normal">cm</span>
             </div>
             <div className="text-[10px] font-mono text-zinc-500">
-              Batas Kritis: &gt;15 cm
+              Ambang Bahaya: &gt;45 cm
             </div>
           </div>
 
@@ -1304,27 +1308,27 @@ export default function DataVisualizer({
               <div className="flex items-center gap-2">
                 <TrendingDown className="w-4 h-4 text-sky-500" />
                 <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 font-mono">
-                  2. Delta Turunan / Lubang Jalan (cm)
+                  2. Jarak Permukaan Bawah / Turunan (cm)
                 </h4>
               </div>
               <span className="text-[10px] font-mono text-zinc-400">
-                Ambang Jatuh/Turunan &gt;15cm
+                Ambang Bahaya Turunan &gt;45cm
               </span>
             </div>
             {renderSvgLineChart(
               displayRecords,
               (r) => {
-                const val = typeof r.deltaDownCm === "number" ? r.deltaDownCm : parseFloat(String(r.deltaDownCm));
+                const val = typeof r.downCm === "number" ? r.downCm : parseFloat(String(r.downCm));
                 return isNaN(val) || !isFinite(val) ? null : val;
               },
               {
                 color: "#0284c7",
-                minY: 0,
-                maxY: 45,
-                unit: "cm delta",
+                minY: 10,
+                maxY: 80,
+                unit: "cm",
                 chartId: "down_chart",
                 thresholds: [
-                  { value: 15, color: "#ef4444", label: "Turunan >15" }
+                  { value: 45, color: "#ef4444", label: "Turunan >45cm" }
                 ]
               }
             )}

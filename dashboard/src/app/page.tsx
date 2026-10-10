@@ -150,7 +150,7 @@ const translations = {
     frontSensorType: "Ultrasonik HC-SR04 Lurus",
     downDrop: "Turunan / Lubang",
     downSub: "Pin D8/D9",
-    downSensorType: "Ultrasonik HC-SR04 Miring",
+    downSensorType: "Ultrasonik HC-SR04 Bawah",
     caneTilt: "Kemiringan Tongkat",
     caneSub: "Pin A4/A5 I2C",
     imuSensorType: "Akselerometer 6-DOF MPU6050",
@@ -329,7 +329,7 @@ const translations = {
     frontSensorType: "Forward Ultrasonic HC-SR04",
     downDrop: "Drop-off / Pothole",
     downSub: "Pin D8/D9",
-    downSensorType: "Angled Ultrasonic HC-SR04",
+    downSensorType: "Downward Ultrasonic HC-SR04",
     caneTilt: "Cane Orientation",
     caneSub: "Pin A4/A5 I2C",
     imuSensorType: "6-DOF Accelerometer MPU6050",
@@ -1867,8 +1867,8 @@ export default function KatanaDashboard() {
         tag: isId ? "[PERINGATAN // PRIORITAS 2]" : "[WARNING // PRIORITY 2]",
         title: isId ? "TEPI TURUNAN / JURANG / LUBANG" : "EDGE DROP-OFF / POTHOLE DETECTED",
         desc: isId
-          ? "Jarak elevasi lantai naik > 15 cm dari baseline. Aktuator memberikan 3 pulsa getar intensitas tinggi pada gagang."
-          : "Floor elevation distance increased by > 15 cm above calibrated baseline. 3 high-intensity vibration pulses issued at handle."
+          ? "Jarak langsung ke permukaan lantai > 45 cm (ambang batas turunan/lubang). Aktuator memberikan 3 pulsa getar intensitas tinggi pada gagang."
+          : "Direct ground surface distance exceeded > 45 cm (drop-off threshold). 3 high-intensity vibration pulses issued at handle."
       };
     }
     if (s.includes("BASAH") || s.includes("WATER")) {
