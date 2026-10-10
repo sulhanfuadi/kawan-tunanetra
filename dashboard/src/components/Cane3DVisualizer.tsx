@@ -49,6 +49,7 @@ export default function Cane3DVisualizer({
   const [rollOffset, setRollOffset] = useState<number>(0);
   const [invertPitch, setInvertPitch] = useState<boolean>(false);
   const [invertRoll, setInvertRoll] = useState<boolean>(false);
+  const [swapAxes, setSwapAxes] = useState<boolean>(false); // Opsi tukar sumbu Pitch & Roll jika posisi pemasangan sensor di samping memerlukan orientasi berbeda
 
   // Manual debug simulation slider state
   const [isManualSim, setIsManualSim] = useState<boolean>(false);
@@ -73,29 +74,36 @@ export default function Cane3DVisualizer({
   const targetRotationRef = useRef<{ pitch: number; roll: number }>({ pitch: 0, roll: 0 });
   const currentRotationRef = useRef<{ pitch: number; roll: number }>({ pitch: 0, roll: 0 });
 
-  // Calculate effective angles
-  const effectiveTilt = useMemo(() => {
-    if (isManualSim) {
-      const p = (manualPitch + pitchOffset) * (invertPitch ? -1 : 1);
-      const r = (manualRoll + rollOffset) * (invertRoll ? -1 : 1);
-      return Math.sqrt(p * p + r * r);
-    }
-    if (!mpuConnected || rawTiltDeg === null) return null;
-    const base = rawTiltDeg;
-    const net = (base + pitchOffset) * (invertPitch ? -1 : 1);
-    return Math.max(0, Math.min(90, net));
-  }, [isManualSim, manualPitch, manualRoll, rawTiltDeg, mpuConnected, pitchOffset, rollOffset, invertPitch, invertRoll]);
-
-  const effectivePitch = useMemo(() => {
+  // Calculate base unswapped angles
+  const basePitch = useMemo(() => {
     if (isManualSim) return (manualPitch + pitchOffset) * (invertPitch ? -1 : 1);
     if (!mpuConnected || rawTiltDeg === null) return 0;
     return (rawTiltDeg + pitchOffset) * (invertPitch ? -1 : 1);
   }, [isManualSim, manualPitch, rawTiltDeg, mpuConnected, pitchOffset, invertPitch]);
 
-  const effectiveRoll = useMemo(() => {
+  const baseRoll = useMemo(() => {
     if (isManualSim) return (manualRoll + rollOffset) * (invertRoll ? -1 : 1);
     return rollOffset * (invertRoll ? -1 : 1);
   }, [isManualSim, manualRoll, rollOffset, invertRoll]);
+
+  // Effective pitch & roll (honoring swapAxes)
+  const effectivePitch = useMemo(() => {
+    return swapAxes ? baseRoll : basePitch;
+  }, [swapAxes, basePitch, baseRoll]);
+
+  const effectiveRoll = useMemo(() => {
+    return swapAxes ? basePitch : baseRoll;
+  }, [swapAxes, basePitch, baseRoll]);
+
+  // Calculate effective net tilt angle
+  const effectiveTilt = useMemo(() => {
+    if (isManualSim) {
+      return Math.sqrt(effectivePitch * effectivePitch + effectiveRoll * effectiveRoll);
+    }
+    if (!mpuConnected || rawTiltDeg === null) return null;
+    const net = Math.abs(effectivePitch);
+    return Math.max(0, Math.min(90, net));
+  }, [isManualSim, effectivePitch, effectiveRoll, mpuConnected, rawTiltDeg]);
 
   // Update target rotation ref whenever calculated values change
   useEffect(() => {
@@ -383,25 +391,39 @@ export default function Cane3DVisualizer({
     eyeDown2.rotation.x = (Math.PI * 3) / 4;
     caneRoot.add(eyeDown2);
 
-    // E. IMU MPU6050 Module Badge
-    const imuPcbGeo = new THREE.BoxGeometry(0.06, 0.06, 0.015);
+    // E. IMU MPU6050 Module (Terpasang di Sisi Kanan Batang Tongkat / +X)
+    const imuPcbGeo = new THREE.BoxGeometry(0.012, 0.06, 0.06); // Tipis di sumbu X (menempel pada dinding pipa), dimensi di Y & Z
     const imuMat = new THREE.MeshStandardMaterial({
-      color: 0x1e3a8a, // Biru pekat modul GY-521
+      color: 0x1e3a8a, // Biru pekat PCB modul GY-521
       metalness: 0.3,
       roughness: 0.5
     });
     const imuMesh = new THREE.Mesh(imuPcbGeo, imuMat);
-    imuMesh.position.set(0, 0.75, 0.038);
+    imuMesh.position.set(0.034, 0.75, 0); // Menempel di sisi kanan batang pipa aluminium (X = +0.034)
     caneRoot.add(imuMesh);
 
-    // Indikator LED IMU
-    const ledGeo = new THREE.BoxGeometry(0.01, 0.015, 0.008);
+    // IC Chip MPU-6050 (QFN-24 hitam di tengah PCB modul)
+    const chipGeo = new THREE.BoxGeometry(0.006, 0.02, 0.02);
+    const chipMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.2 });
+    const chipMesh = new THREE.Mesh(chipGeo, chipMat);
+    chipMesh.position.set(0.042, 0.75, 0);
+    caneRoot.add(chipMesh);
+
+    // Indikator LED IMU (merah di sisi luar PCB)
+    const ledGeo = new THREE.BoxGeometry(0.006, 0.012, 0.01);
     const ledMat = new THREE.MeshBasicMaterial({
       color: mpuConnected ? 0xef4444 : 0x52525b
     });
     const ledMesh = new THREE.Mesh(ledGeo, ledMat);
-    ledMesh.position.set(-0.018, 0.76, 0.048);
+    ledMesh.position.set(0.042, 0.768, -0.018);
     caneRoot.add(ledMesh);
+
+    // Pin Header Jumper (kuningan di bawah PCB)
+    const pinHeaderGeo = new THREE.BoxGeometry(0.012, 0.015, 0.048);
+    const pinHeaderMat = new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.8, roughness: 0.3 });
+    const pinHeaderMesh = new THREE.Mesh(pinHeaderGeo, pinHeaderMat);
+    pinHeaderMesh.position.set(0.034, 0.71, 0);
+    caneRoot.add(pinHeaderMesh);
 
     // 7. Animation Loop with smooth lerp
     let lastTime = performance.now();
@@ -479,11 +501,12 @@ export default function Cane3DVisualizer({
 
   // Copy calibration offset to clipboard for firmware/code
   const handleCopyConfig = () => {
-    const configSnippet = `// Kalibrasi MPU6050 Offset
+    const configSnippet = `// Kalibrasi MPU6050 - Posisi Fisik: Sisi Kanan Batang Tongkat (+X)
 const float MPU_PITCH_OFFSET = ${pitchOffset.toFixed(2)}f;
 const float MPU_ROLL_OFFSET  = ${rollOffset.toFixed(2)}f;
 const bool  MPU_INVERT_PITCH = ${invertPitch ? "true" : "false"};
-const bool  MPU_INVERT_ROLL  = ${invertRoll ? "true" : "false"};`;
+const bool  MPU_INVERT_ROLL  = ${invertRoll ? "true" : "false"};
+const bool  MPU_SWAP_AXES    = ${swapAxes ? "true" : "false"};`;
     navigator.clipboard.writeText(configSnippet);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
@@ -614,6 +637,10 @@ const bool  MPU_INVERT_ROLL  = ${invertRoll ? "true" : "false"};`;
             <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
             Sumbu Z+ (Depan/Hijau) & Sumbu X+ (Kanan/Biru)
           </div>
+          <div className="px-2.5 py-1 bg-sky-950/80 backdrop-blur-md border border-sky-800/60 rounded-md text-[11px] font-mono text-sky-300 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-sky-400 inline-block" />
+            Sensor IMU MPU6050: Sisi Kanan Batang (+X)
+          </div>
           <div className="px-2.5 py-1 bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-md text-[11px] font-mono text-zinc-400">
             Garis Putus-Putus: Referensi 0° Plumb Line Tegak
           </div>
@@ -739,26 +766,41 @@ const bool  MPU_INVERT_ROLL  = ${invertRoll ? "true" : "false"};`;
                 />
               </div>
 
-              {/* Invert Axis Checkboxes */}
-              <div className="flex items-center justify-between pt-1 text-[11px] font-mono text-zinc-300">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={invertPitch}
-                    onChange={(e) => setInvertPitch(e.target.checked)}
-                    className="rounded-xs accent-emerald-500"
-                  />
-                  <span>Balik Pitch</span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={invertRoll}
-                    onChange={(e) => setInvertRoll(e.target.checked)}
-                    className="rounded-xs accent-emerald-500"
-                  />
-                  <span>Balik Roll</span>
-                </label>
+              {/* Invert Axis & Mounting Direction Checkboxes */}
+              <div className="space-y-1.5 pt-1 text-[11px] font-mono text-zinc-300">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={invertPitch}
+                      onChange={(e) => setInvertPitch(e.target.checked)}
+                      className="rounded-xs accent-emerald-500"
+                    />
+                    <span>Balik Pitch</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={invertRoll}
+                      onChange={(e) => setInvertRoll(e.target.checked)}
+                      className="rounded-xs accent-emerald-500"
+                    />
+                    <span>Balik Roll</span>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 border-t border-zinc-800/80">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-sky-400">
+                    <input
+                      type="checkbox"
+                      checked={swapAxes}
+                      onChange={(e) => setSwapAxes(e.target.checked)}
+                      className="rounded-xs accent-sky-500"
+                    />
+                    <span>Tukar Sumbu (Pitch ↔ Roll)</span>
+                  </label>
+                  <span className="text-[10px] text-zinc-500 font-mono">Mount: Kanan (+X)</span>
+                </div>
               </div>
             </div>
 
