@@ -23,7 +23,9 @@ import {
   Footprints,
   Flame,
   Wrench,
-  HelpCircle
+  HelpCircle,
+  Move3d,
+  Hand
 } from "lucide-react";
 
 interface Cane3DVisualizerProps {
@@ -110,12 +112,18 @@ export default function Cane3DVisualizer({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const caneGroupRef = useRef<THREE.Group | null>(null);
+  const caneManipulatorRef = useRef<THREE.Mesh | null>(null);
   const imuMountGroupRef = useRef<THREE.Group | null>(null);
   const zoneMeshesRef = useRef<THREE.Group | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
 
-  // Active Tab
+  // Active Tab & Interaction Mode
   const [activeTab, setActiveTab] = useState<"wizard" | "finetune" | "profiles">("wizard");
+  const [interactMode, setInteractMode] = useState<"orbit" | "dragCane">("orbit");
+  const [draggedPitch, setDraggedPitch] = useState<number>(15);
+  const [draggedRoll, setDraggedRoll] = useState<number>(0);
+  const [isCanePosed, setIsCanePosed] = useState<boolean>(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
   // Wizard state
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
@@ -156,7 +164,7 @@ export default function Cane3DVisualizer({
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [currentProfileId, setCurrentProfileId] = useState<string>("default");
 
-  // Mouse orbit state
+  // Mouse orbit & drag state
   const isDraggingRef = useRef<boolean>(false);
   const prevMousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const cameraSphericalRef = useRef<{ radius: number; theta: number; phi: number }>({
@@ -206,7 +214,7 @@ export default function Cane3DVisualizer({
     }
   }, [rawTiltDeg, manualPitch, isManualSim]);
 
-  // Calculate base unswapped angles
+  // Calculate base unswapped angles from sensor
   const basePitch = useMemo(() => {
     if (isManualSim) return (manualPitch + pitchOffset) * (invertPitch ? -1 : 1);
     if (!mpuConnected || rawTiltDeg === null) return 0;
@@ -218,10 +226,9 @@ export default function Cane3DVisualizer({
     return rollOffset * (invertRoll ? -1 : 1);
   }, [isManualSim, manualRoll, rollOffset, invertRoll]);
 
-  // Effective pitch & roll (honoring swapAxes)
+  // Effective pitch & roll (honoring swapAxes and deadband)
   const effectivePitch = useMemo(() => {
     const raw = swapAxes ? baseRoll : basePitch;
-    // Deadband filter
     if (Math.abs(raw) < noiseDeadband) return 0;
     return raw;
   }, [swapAxes, basePitch, baseRoll, noiseDeadband]);
@@ -234,36 +241,51 @@ export default function Cane3DVisualizer({
 
   // Effective net tilt
   const effectiveTilt = useMemo(() => {
+    if (interactMode === "dragCane") {
+      return Math.sqrt(draggedPitch * draggedPitch + draggedRoll * draggedRoll);
+    }
     if (isManualSim) {
       return Math.sqrt(effectivePitch * effectivePitch + effectiveRoll * effectiveRoll);
     }
     if (!mpuConnected || rawTiltDeg === null) return null;
     const net = Math.abs(effectivePitch);
     return Math.max(0, Math.min(90, net));
-  }, [isManualSim, effectivePitch, effectiveRoll, mpuConnected, rawTiltDeg]);
+  }, [interactMode, draggedPitch, draggedRoll, isManualSim, effectivePitch, effectiveRoll, mpuConnected, rawTiltDeg]);
 
-  // Update target rotation ref whenever calculated values change
+  // Update target rotation ref
   useEffect(() => {
-    targetRotationRef.current = {
-      pitch: THREE.MathUtils.degToRad(effectivePitch),
-      roll: THREE.MathUtils.degToRad(effectiveRoll)
-    };
-  }, [effectivePitch, effectiveRoll]);
+    if (interactMode === "dragCane") {
+      targetRotationRef.current = {
+        pitch: THREE.MathUtils.degToRad(draggedPitch),
+        roll: THREE.MathUtils.degToRad(draggedRoll)
+      };
+    } else {
+      targetRotationRef.current = {
+        pitch: THREE.MathUtils.degToRad(effectivePitch),
+        roll: THREE.MathUtils.degToRad(effectiveRoll)
+      };
+    }
+  }, [interactMode, draggedPitch, draggedRoll, effectivePitch, effectiveRoll]);
+
+  // Show/Hide 3D Manipulator Handle
+  useEffect(() => {
+    if (caneManipulatorRef.current) {
+      caneManipulatorRef.current.visible = interactMode === "dragCane";
+    }
+  }, [interactMode]);
 
   // Update IMU clamp twist in 3D scene
   useEffect(() => {
     if (imuMountGroupRef.current) {
-      // Rotate module around cane Y axis to reflect clamp alignment twist
       imuMountGroupRef.current.rotation.y = THREE.MathUtils.degToRad(clampTwist);
     }
   }, [clampTwist]);
 
-  // Build / Update 3D Zone Envelopes (Visual Arcs) in Three.js
+  // Build / Update 3D Zone Envelopes
   const updateZoneVisuals = useCallback(() => {
     if (!zoneMeshesRef.current || !sceneRef.current) return;
     const group = zoneMeshesRef.current;
 
-    // Clear old zone children
     while (group.children.length > 0) {
       const obj = group.children[0];
       group.remove(obj);
@@ -271,9 +293,8 @@ export default function Cane3DVisualizer({
 
     if (!showAngleZones) return;
 
-    const radius = 1.9; // Radius of guide fan arc
+    const radius = 1.9;
 
-    // Helper function to create an arc wedge mesh on side profile (XY plane at Z=0)
     const createArcWedge = (startDeg: number, endDeg: number, color: number, opacity: number) => {
       const shape = new THREE.Shape();
       shape.moveTo(0, 0);
@@ -282,7 +303,6 @@ export default function Cane3DVisualizer({
       for (let i = 0; i <= segments; i++) {
         const thetaDeg = 90 - (startDeg + (endDeg - startDeg) * (i / segments));
         const rad = THREE.MathUtils.degToRad(thetaDeg);
-        const x = 0;
         const y = Math.sin(rad) * radius;
         const z = Math.cos(rad) * radius;
         if (i === 0) shape.moveTo(z, y);
@@ -299,20 +319,16 @@ export default function Cane3DVisualizer({
         depthWrite: false
       });
 
-      const mesh = new THREE.Mesh(geometry, material);
-      return mesh;
+      return new THREE.Mesh(geometry, material);
     };
 
-    // 1. Safe Walking Zone (0° to walkingStance + 5°)
     const safeMax = Math.min(dropThreshold, walkingStance + 6);
     const safeMesh = createArcWedge(0, safeMax, 0x10b981, 0.18);
     group.add(safeMesh);
 
-    // 2. Drop / Caution Inspection Zone (safeMax to fallThreshold)
     const cautionMesh = createArcWedge(safeMax, fallThreshold, 0xf59e0b, 0.22);
     group.add(cautionMesh);
 
-    // 3. Fall Danger Zone (fallThreshold to 90°)
     const fallMesh = createArcWedge(fallThreshold, 88, 0xf43f5e, 0.26);
     group.add(fallMesh);
   }, [showAngleZones, walkingStance, dropThreshold, fallThreshold]);
@@ -346,6 +362,46 @@ export default function Cane3DVisualizer({
     }
     setWizardCompleted((prev) => ({ ...prev, step3: true }));
     handleSaveCurrentProfile();
+  };
+
+  // Direct 3D Model Drag-to-Align Synchronization
+  const handleAutoAlignSensor = () => {
+    const currentRaw = rawTiltDeg ?? (isManualSim ? manualPitch : 0);
+    // User wants current physical reading to produce visual orientation draggedPitch & draggedRoll
+    const newP = (draggedPitch * (invertPitch ? -1 : 1)) - currentRaw;
+    const newR = draggedRoll * (invertRoll ? -1 : 1);
+
+    const roundedP = Math.round(newP * 10) / 10;
+    const roundedR = Math.round(newR * 10) / 10;
+
+    setPitchOffset(roundedP);
+    setRollOffset(roundedR);
+
+    // Save to LocalStorage
+    try {
+      const profile: CalibrationProfile = {
+        id: "custom",
+        name: "Profil Kalibrasi Drag-to-Align",
+        pitchOffset: roundedP,
+        rollOffset: roundedR,
+        clampTwist,
+        invertPitch,
+        invertRoll,
+        swapAxes,
+        walkingStance,
+        dropThreshold,
+        fallThreshold,
+        noiseDeadband
+      };
+      localStorage.setItem("katana_cane_calibration", JSON.stringify(profile));
+    } catch (e) {
+      console.warn("Gagal auto-save:", e);
+    }
+
+    setSyncFeedback(`Sensor berhasil disinkronkan! (Offset Pitch: ${roundedP > 0 ? `+${roundedP}` : roundedP}°, Roll: ${roundedR > 0 ? `+${roundedR}` : roundedR}°)`);
+    setTimeout(() => setSyncFeedback(null), 3500);
+    setInteractMode("orbit");
+    setIsCanePosed(false);
   };
 
   // Reset to Factory Default
@@ -530,7 +586,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     plumbLine.computeLineDistances();
     scene.add(plumbLine);
 
-    // Group for 3D Angle Zones (Visual Arc Wedges)
+    // Group for 3D Angle Zones
     const zonesGroup = new THREE.Group();
     zoneMeshesRef.current = zonesGroup;
     scene.add(zonesGroup);
@@ -580,6 +636,20 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     cuffMesh.position.set(0, 1.9, 0.05);
     caneRoot.add(cuffMesh);
 
+    // 3D Manipulator Glowing Ring (Tampak saat mode dragCane aktif)
+    const handleGizmoGeo = new THREE.TorusGeometry(0.14, 0.012, 12, 32);
+    const handleGizmoMat = new THREE.MeshBasicMaterial({
+      color: 0xf59e0b,
+      transparent: true,
+      opacity: 0.85
+    });
+    const handleGizmoMesh = new THREE.Mesh(handleGizmoGeo, handleGizmoMat);
+    handleGizmoMesh.rotation.x = Math.PI / 2;
+    handleGizmoMesh.position.set(0, 1.85, 0.05);
+    caneManipulatorRef.current = handleGizmoMesh;
+    handleGizmoMesh.visible = false;
+    caneRoot.add(handleGizmoMesh);
+
     // Ultrasonic Sensors
     const sensorMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4, metalness: 0.5 });
     const frontBoxGeo = new THREE.BoxGeometry(0.11, 0.06, 0.04);
@@ -623,7 +693,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     eyeDown2.rotation.x = (Math.PI * 3) / 4;
     caneRoot.add(eyeDown2);
 
-    // IMU Sensor Group (Terpasang pada sisi Kanan Batang Tongkat / +X dengan Twist Mount)
+    // IMU Sensor Group (Sisi Kanan Batang Tongkat / +X dengan Twist Mount)
     const imuMountGroup = new THREE.Group();
     imuMountGroup.position.set(0, 0.75, 0);
     imuMountGroupRef.current = imuMountGroup;
@@ -703,7 +773,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     };
   }, []);
 
-  // Mouse orbit controls
+  // Mouse Controls (Handles both Orbit and Direct Cane Drag)
   const handleMouseDown = (e: React.MouseEvent) => {
     isDraggingRef.current = true;
     prevMousePosRef.current = { x: e.clientX, y: e.clientY };
@@ -715,10 +785,24 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     const deltaY = e.clientY - prevMousePosRef.current.y;
     prevMousePosRef.current = { x: e.clientX, y: e.clientY };
 
-    const s = cameraSphericalRef.current;
-    s.theta -= deltaX * 0.008;
-    s.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.02, s.phi - deltaY * 0.008));
-    updateCameraFromSpherical();
+    if (interactMode === "dragCane") {
+      // Direct 3D cane manipulation
+      setDraggedPitch((prev) => {
+        const next = prev + deltaY * 0.35;
+        return Math.max(-85, Math.min(85, Math.round(next * 10) / 10));
+      });
+      setDraggedRoll((prev) => {
+        const next = prev + deltaX * 0.35;
+        return Math.max(-60, Math.min(60, Math.round(next * 10) / 10));
+      });
+      setIsCanePosed(true);
+    } else {
+      // Orbit camera
+      const s = cameraSphericalRef.current;
+      s.theta -= deltaX * 0.008;
+      s.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.02, s.phi - deltaY * 0.008));
+      updateCameraFromSpherical();
+    }
   };
 
   const handleMouseUp = () => {
@@ -732,7 +816,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     updateCameraFromSpherical();
   };
 
-  // Safety status badge based on comprehensive envelopes
+  // Safety status badge
   const safetyStatus = useMemo(() => {
     const angle = effectiveTilt ?? 0;
     if (angle >= fallThreshold) {
@@ -778,58 +862,95 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
           </span>
         </div>
 
-        {/* Camera Preset Buttons */}
-        <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800">
-          <button
-            type="button"
-            onClick={() => applyViewPreset("iso")}
-            className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
-              activeView === "iso" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
-            }`}
-          >
-            3D ISO
-          </button>
-          <button
-            type="button"
-            onClick={() => applyViewPreset("side")}
-            className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
-              activeView === "side" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
-            }`}
-          >
-            SAMPING (PITCH)
-          </button>
-          <button
-            type="button"
-            onClick={() => applyViewPreset("front")}
-            className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
-              activeView === "front" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
-            }`}
-          >
-            DEPAN (ROLL)
-          </button>
-          <button
-            type="button"
-            onClick={() => applyViewPreset("top")}
-            className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
-              activeView === "top" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
-            }`}
-          >
-            ATAS
-          </button>
-        </div>
+        {/* Interaction Mode & Camera Presets */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Interaction Mode Toggle */}
+          <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setInteractMode("orbit")}
+              className={`px-2.5 py-1 text-[11px] font-mono rounded-md flex items-center gap-1 transition-all ${
+                interactMode === "orbit"
+                  ? "bg-zinc-800 text-white font-bold"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+              title="Mode Kamera Orbit (Putar sudut pandang)"
+            >
+              <span>🎥 Kamera Orbit</span>
+            </button>
 
-        {/* Readout angle badge */}
-        <div className="flex items-center gap-2">
-          <div className={`px-2.5 py-1 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 ${safetyStatus.color}`}>
-            <safetyStatus.icon className="w-3.5 h-3.5" />
-            {safetyStatus.label}
+            <button
+              type="button"
+              onClick={() => {
+                setInteractMode("dragCane");
+                setDraggedPitch(effectivePitch);
+                setDraggedRoll(effectiveRoll);
+              }}
+              className={`px-2.5 py-1 text-[11px] font-mono rounded-md flex items-center gap-1.5 transition-all ${
+                interactMode === "dragCane"
+                  ? "bg-amber-500 text-zinc-950 font-bold shadow-md shadow-amber-500/20 ring-1 ring-amber-400"
+                  : "text-amber-400 hover:bg-zinc-800 border border-amber-500/30"
+              }`}
+              title="Mode Gerakkan Tongkat Langsung (Tarik model 3D untuk mencocokkan dengan fisik aktual)"
+            >
+              <Hand className="w-3 h-3" />
+              <span>🖐️ Gerakkan Tongkat (Drag-to-Align)</span>
+            </button>
           </div>
 
-          <div className="px-3 py-1 bg-zinc-950 border border-zinc-700 rounded-lg text-xs font-mono font-bold text-white flex items-center gap-1.5">
-            <span className="text-zinc-400 font-normal">SUDUT:</span>
-            <span className="text-emerald-400 text-sm">
-              {effectiveTilt !== null ? `${effectiveTilt.toFixed(1)}°` : "--"}
-            </span>
+          {/* Camera Preset Buttons */}
+          <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800">
+            <button
+              type="button"
+              onClick={() => applyViewPreset("iso")}
+              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+                activeView === "iso" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              3D ISO
+            </button>
+            <button
+              type="button"
+              onClick={() => applyViewPreset("side")}
+              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+                activeView === "side" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              SAMPING (PITCH)
+            </button>
+            <button
+              type="button"
+              onClick={() => applyViewPreset("front")}
+              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+                activeView === "front" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              DEPAN (ROLL)
+            </button>
+            <button
+              type="button"
+              onClick={() => applyViewPreset("top")}
+              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+                activeView === "top" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              ATAS
+            </button>
+          </div>
+
+          {/* Readout angle badge */}
+          <div className="flex items-center gap-2">
+            <div className={`px-2.5 py-1 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 ${safetyStatus.color}`}>
+              <safetyStatus.icon className="w-3.5 h-3.5" />
+              {safetyStatus.label}
+            </div>
+
+            <div className="px-3 py-1 bg-zinc-950 border border-zinc-700 rounded-lg text-xs font-mono font-bold text-white flex items-center gap-1.5">
+              <span className="text-zinc-400 font-normal">SUDUT:</span>
+              <span className="text-emerald-400 text-sm">
+                {effectiveTilt !== null ? `${effectiveTilt.toFixed(1)}°` : "--"}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -842,13 +963,15 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
-        className="w-full h-88 cursor-grab active:cursor-grabbing relative select-none bg-radial from-zinc-900 to-zinc-950"
+        className={`w-full h-88 relative select-none bg-radial from-zinc-900 to-zinc-950 ${
+          interactMode === "dragCane" ? "cursor-grab active:cursor-grabbing" : "cursor-default"
+        }`}
       >
         {/* Floating Overlays */}
         <div className="absolute top-3 left-3 flex flex-col gap-1.5 pointer-events-none">
           <div className="px-2.5 py-1 bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-md text-[11px] font-mono text-zinc-300 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-            Sumbu Z+ (Depan/Hijau) & Sumbu X+ (Kanan/Biru)
+            Sumbu Z+ (Depan/Hijau) &amp; Sumbu X+ (Kanan/Biru)
           </div>
           <div className="px-2.5 py-1 bg-sky-950/80 backdrop-blur-md border border-sky-800/60 rounded-md text-[11px] font-mono text-sky-300 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-sky-400 inline-block" />
@@ -860,7 +983,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
         </div>
 
         <div className="absolute bottom-3 left-3 text-[10px] font-mono text-zinc-500 pointer-events-none bg-zinc-950/80 px-2 py-1 rounded-md border border-zinc-900 flex items-center gap-2">
-          <span>💡 Drag mouse rotasi | Scroll zoom</span>
+          <span>{interactMode === "dragCane" ? "🖐️ Drag mouse untuk mengarahkan tongkat" : "💡 Drag mouse rotasi kamera | Scroll zoom"}</span>
           <span className="text-zinc-600">|</span>
           <span className={isStable ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
             {isStable ? "🟢 Sensor Stabil" : "🟡 Sensor Goyang / Bergerak"}
@@ -871,15 +994,21 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
         <div className="absolute top-3 right-3 bg-zinc-900/90 backdrop-blur-md border border-zinc-800 p-2.5 rounded-lg font-mono text-[11px] text-zinc-300 space-y-1 shadow-lg pointer-events-none min-w-48">
           <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider border-b border-zinc-800 pb-1 flex justify-between">
             <span>Orientasi Tongkat</span>
-            <span className="text-emerald-400">{isManualSim ? "SIMULASI" : "TELEMETRI"}</span>
+            <span className="text-emerald-400">
+              {interactMode === "dragCane" ? "DRAG LANGSUNG" : (isManualSim ? "SIMULASI" : "TELEMETRI")}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-zinc-400">Pitch (Maju/Mundur):</span>
-            <span className="font-bold text-zinc-100">{effectivePitch.toFixed(1)}°</span>
+            <span className="font-bold text-zinc-100">
+              {interactMode === "dragCane" ? `${draggedPitch.toFixed(1)}°` : `${effectivePitch.toFixed(1)}°`}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-zinc-400">Roll (Kiri/Kanan):</span>
-            <span className="font-bold text-zinc-100">{effectiveRoll.toFixed(1)}°</span>
+            <span className="font-bold text-zinc-100">
+              {interactMode === "dragCane" ? `${draggedRoll.toFixed(1)}°` : `${effectiveRoll.toFixed(1)}°`}
+            </span>
           </div>
           <div className="flex justify-between border-t border-zinc-800 pt-1">
             <span className="text-zinc-400">Net Kemiringan:</span>
@@ -896,6 +1025,70 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
             <span className="text-rose-400 font-bold">&gt;{fallThreshold.toFixed(0)}°</span>
           </div>
         </div>
+
+        {/* Direct Drag-to-Align Floating Control Banner */}
+        {interactMode === "dragCane" && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur-md border border-amber-500/60 p-3 rounded-xl shadow-2xl flex flex-col items-center gap-2 z-20 max-w-lg w-[92%] animate-in fade-in">
+            <div className="flex items-center justify-between w-full border-b border-zinc-800 pb-1.5">
+              <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                <Hand className="w-3.5 h-3.5" />
+                <span>Mode Gerak Tongkat Langsung (Drag-to-Align)</span>
+              </span>
+              <span className="text-[10px] font-mono text-zinc-400">
+                Arahkan model 3D persis sama dengan tongkat fisik Anda
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 w-full text-center font-mono text-[11px] pt-1">
+              <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
+                <div className="text-[10px] text-zinc-400">Model 3D Diarahkan:</div>
+                <div className="text-amber-400 font-bold text-xs">P: {draggedPitch.toFixed(1)}° | R: {draggedRoll.toFixed(1)}°</div>
+              </div>
+
+              <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
+                <div className="text-[10px] text-zinc-400">Sensor Fisik Terbaca:</div>
+                <div className="text-zinc-200 font-bold text-xs">{rawTiltDeg !== null ? `${rawTiltDeg.toFixed(1)}°` : "--"}</div>
+              </div>
+
+              <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
+                <div className="text-[10px] text-zinc-400">Auto Offset Dihitung:</div>
+                <div className="text-emerald-400 font-bold text-xs">
+                  ΔP: {(draggedPitch - (rawTiltDeg ?? 0)).toFixed(1)}°
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full pt-1">
+              <button
+                type="button"
+                onClick={handleAutoAlignSensor}
+                className="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-lg shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>✨ Cocokkan Sensor dengan Posisi Model Ini</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setInteractMode("orbit");
+                  setIsCanePosed(false);
+                }}
+                className="py-2 px-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-mono text-xs rounded-lg border border-zinc-700 transition-all cursor-pointer"
+              >
+                Kembali
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Sync Success Feedback Notification */}
+        {syncFeedback && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xl border border-emerald-400 flex items-center gap-2 animate-bounce z-20">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>{syncFeedback}</span>
+          </div>
+        )}
       </div>
 
       {/* Comprehensive Calibration Suite Deck */}
