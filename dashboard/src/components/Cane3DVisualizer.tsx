@@ -25,7 +25,9 @@ import {
   Wrench,
   HelpCircle,
   Move3d,
-  Hand
+  Hand,
+  Maximize2,
+  Minimize2
 } from "lucide-react";
 
 interface Cane3DVisualizerProps {
@@ -163,6 +165,18 @@ export default function Cane3DVisualizer({
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [currentProfileId, setCurrentProfileId] = useState<string>("default");
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  // Keyboard shortcut to exit fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreen]);
 
   // Mouse orbit & drag state
   const isDraggingRef = useRef<boolean>(false);
@@ -758,6 +772,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
       if (!container || !renderer || !camera) return;
       const w = container.clientWidth;
       const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
@@ -765,7 +780,13 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
 
     window.addEventListener("resize", handleResize);
 
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+    resizeObserver.observe(container);
+
     return () => {
+      resizeObserver.disconnect();
       window.removeEventListener("resize", handleResize);
       if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
       renderer.dispose();
@@ -848,7 +869,13 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
   }, [effectiveTilt, fallThreshold, dropThreshold, walkingStance]);
 
   return (
-    <div className="relative flex flex-col w-full h-full bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl">
+    <div
+      className={
+        isFullscreen
+          ? "fixed inset-0 z-50 w-screen h-screen bg-zinc-950 flex flex-col overflow-hidden animate-in fade-in duration-150"
+          : "relative flex flex-col w-full h-full bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl"
+      }
+    >
       {/* Visualizer Top Bar */}
       <div className="px-4 py-2.5 bg-zinc-900/95 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2 z-10 backdrop-blur-md">
         <div className="flex items-center gap-2">
@@ -869,7 +896,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
             <button
               type="button"
               onClick={() => setInteractMode("orbit")}
-              className={`px-2.5 py-1 text-[11px] font-mono rounded-md flex items-center gap-1 transition-all ${
+              className={`px-2.5 py-1 text-[11px] font-mono rounded-md flex items-center gap-1 transition-all cursor-pointer ${
                 interactMode === "orbit"
                   ? "bg-zinc-800 text-white font-bold"
                   : "text-zinc-400 hover:text-zinc-200"
@@ -886,7 +913,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
                 setDraggedPitch(effectivePitch);
                 setDraggedRoll(effectiveRoll);
               }}
-              className={`px-2.5 py-1 text-[11px] font-mono rounded-md flex items-center gap-1.5 transition-all ${
+              className={`px-2.5 py-1 text-[11px] font-mono rounded-md flex items-center gap-1.5 transition-all cursor-pointer ${
                 interactMode === "dragCane"
                   ? "bg-amber-500 text-zinc-950 font-bold shadow-md shadow-amber-500/20 ring-1 ring-amber-400"
                   : "text-amber-400 hover:bg-zinc-800 border border-amber-500/30"
@@ -903,7 +930,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
             <button
               type="button"
               onClick={() => applyViewPreset("iso")}
-              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all cursor-pointer ${
                 activeView === "iso" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
               }`}
             >
@@ -912,7 +939,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
             <button
               type="button"
               onClick={() => applyViewPreset("side")}
-              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all cursor-pointer ${
                 activeView === "side" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
               }`}
             >
@@ -921,7 +948,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
             <button
               type="button"
               onClick={() => applyViewPreset("front")}
-              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all cursor-pointer ${
                 activeView === "front" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
               }`}
             >
@@ -930,7 +957,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
             <button
               type="button"
               onClick={() => applyViewPreset("top")}
-              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all ${
+              className={`px-2 py-0.5 text-[10px] font-mono rounded transition-all cursor-pointer ${
                 activeView === "top" ? "bg-emerald-600 text-white font-bold" : "text-zinc-400 hover:bg-zinc-800"
               }`}
             >
@@ -938,7 +965,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
             </button>
           </div>
 
-          {/* Readout angle badge */}
+          {/* Readout angle badge & Fullscreen Toggle */}
           <div className="flex items-center gap-2">
             <div className={`px-2.5 py-1 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 ${safetyStatus.color}`}>
               <safetyStatus.icon className="w-3.5 h-3.5" />
@@ -951,6 +978,31 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
                 {effectiveTilt !== null ? `${effectiveTilt.toFixed(1)}°` : "--"}
               </span>
             </div>
+
+            {/* Fullscreen Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className={`px-2.5 py-1 text-[11px] font-mono rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                isFullscreen
+                  ? "bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30"
+                  : "bg-zinc-950 text-zinc-300 hover:text-white border-zinc-800 hover:bg-zinc-800"
+              }`}
+              title={isFullscreen ? "Keluar Layar Penuh (Esc)" : "Buka Layar Penuh (Fullscreen 3D Lab)"}
+            >
+              {isFullscreen ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden sm:inline font-bold">Perkecil</span>
+                  <span className="text-[9px] text-zinc-400 font-mono">(ESC)</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline font-bold">Layar Penuh</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -963,7 +1015,9 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
-        className={`w-full h-88 relative select-none bg-radial from-zinc-900 to-zinc-950 ${
+        className={`w-full ${
+          isFullscreen ? "flex-1 min-h-0" : "h-[480px]"
+        } relative select-none bg-radial from-zinc-900 to-zinc-950 ${
           interactMode === "dragCane" ? "cursor-grab active:cursor-grabbing" : "cursor-default"
         }`}
       >
@@ -982,8 +1036,8 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
           </div>
         </div>
 
-        <div className="absolute bottom-3 left-3 text-[10px] font-mono text-zinc-500 pointer-events-none bg-zinc-950/80 px-2 py-1 rounded-md border border-zinc-900 flex items-center gap-2">
-          <span>{interactMode === "dragCane" ? "🖐️ Drag mouse untuk mengarahkan tongkat" : "💡 Drag mouse rotasi kamera | Scroll zoom"}</span>
+        <div className={`absolute bottom-3 left-3 text-[10px] font-mono text-zinc-500 pointer-events-none bg-zinc-950/80 px-2 py-1 rounded-md border border-zinc-900 ${interactMode === "dragCane" ? "hidden xl:flex" : "flex"} items-center gap-2`}>
+          <span>{interactMode === "dragCane" ? "🖐️ Drag mouse di canvas untuk mengarahkan tongkat" : "💡 Drag mouse rotasi kamera | Scroll zoom"}</span>
           <span className="text-zinc-600">|</span>
           <span className={isStable ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
             {isStable ? "🟢 Sensor Stabil" : "🟡 Sensor Goyang / Bergerak"}
@@ -1026,46 +1080,41 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
           </div>
         </div>
 
-        {/* Direct Drag-to-Align Floating Control Banner */}
+        {/* Direct Drag-to-Align Bottom Action Dock (Unobtrusive) */}
         {interactMode === "dragCane" && (
-          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur-md border border-amber-500/60 p-3 rounded-xl shadow-2xl flex flex-col items-center gap-2 z-20 max-w-lg w-[92%] animate-in fade-in">
-            <div className="flex items-center justify-between w-full border-b border-zinc-800 pb-1.5">
-              <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-                <Hand className="w-3.5 h-3.5" />
-                <span>Mode Gerak Tongkat Langsung (Drag-to-Align)</span>
-              </span>
-              <span className="text-[10px] font-mono text-zinc-400">
-                Arahkan model 3D persis sama dengan tongkat fisik Anda
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 w-full text-center font-mono text-[11px] pt-1">
-              <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                <div className="text-[10px] text-zinc-400">Model 3D Diarahkan:</div>
-                <div className="text-amber-400 font-bold text-xs">P: {draggedPitch.toFixed(1)}° | R: {draggedRoll.toFixed(1)}°</div>
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur-md border border-amber-500/70 px-3.5 py-2 rounded-xl shadow-2xl flex flex-wrap items-center justify-between gap-3 z-20 max-w-2xl w-[94%] sm:w-auto animate-in fade-in slide-in-from-bottom-2">
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-400 font-bold text-xs">
+                <Hand className="w-3.5 h-3.5 animate-pulse" />
+                <span>Drag Mode Aktif</span>
               </div>
 
-              <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                <div className="text-[10px] text-zinc-400">Sensor Fisik Terbaca:</div>
-                <div className="text-zinc-200 font-bold text-xs">{rawTiltDeg !== null ? `${rawTiltDeg.toFixed(1)}°` : "--"}</div>
-              </div>
-
-              <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800">
-                <div className="text-[10px] text-zinc-400">Auto Offset Dihitung:</div>
-                <div className="text-emerald-400 font-bold text-xs">
-                  ΔP: {(draggedPitch - (rawTiltDeg ?? 0)).toFixed(1)}°
-                </div>
+              <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] text-zinc-300">
+                <span className="text-zinc-400">Target 3D:</span>
+                <span className="text-amber-400 font-bold">
+                  P:{draggedPitch.toFixed(1)}° R:{draggedRoll.toFixed(1)}°
+                </span>
+                <span className="text-zinc-600">|</span>
+                <span className="text-zinc-400">Fisik:</span>
+                <span className="text-zinc-200">
+                  {rawTiltDeg !== null ? `${rawTiltDeg.toFixed(1)}°` : "--"}
+                </span>
+                <span className="text-zinc-600">|</span>
+                <span className="text-zinc-400">Offset ΔP:</span>
+                <span className="text-emerald-400 font-bold">
+                  {(draggedPitch - (rawTiltDeg ?? 0)).toFixed(1)}°
+                </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 w-full pt-1">
+            <div className="flex items-center gap-2 ml-auto">
               <button
                 type="button"
                 onClick={handleAutoAlignSensor}
-                className="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-lg shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
+                className="py-1.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-lg shadow-md shadow-emerald-950 flex items-center gap-1.5 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>✨ Cocokkan Sensor dengan Posisi Model Ini</span>
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>✨ Cocokkan Sensor</span>
               </button>
 
               <button
@@ -1074,25 +1123,25 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
                   setInteractMode("orbit");
                   setIsCanePosed(false);
                 }}
-                className="py-2 px-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-mono text-xs rounded-lg border border-zinc-700 transition-all cursor-pointer"
+                className="py-1.5 px-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-mono text-xs rounded-lg border border-zinc-700 transition-all cursor-pointer"
               >
-                Kembali
+                Selesai
               </button>
             </div>
           </div>
         )}
 
-        {/* Sync Success Feedback Notification */}
+        {/* Sync Success Feedback Notification Toast */}
         {syncFeedback && (
-          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xl border border-emerald-400 flex items-center gap-2 animate-bounce z-20">
-            <CheckCircle2 className="w-4 h-4" />
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-emerald-600/95 backdrop-blur-md text-white px-4 py-2 rounded-xl text-xs font-bold shadow-2xl border border-emerald-400 flex items-center gap-2 animate-in fade-in slide-in-from-top-2 z-30 pointer-events-none">
+            <CheckCircle2 className="w-4 h-4 text-emerald-200" />
             <span>{syncFeedback}</span>
           </div>
         )}
       </div>
 
       {/* Comprehensive Calibration Suite Deck */}
-      <div className="bg-zinc-900/95 border-t border-zinc-800 p-3.5 space-y-3">
+      <div className={`bg-zinc-900/95 border-t border-zinc-800 p-3.5 space-y-3 ${isFullscreen ? "max-h-[42vh] overflow-y-auto shrink-0" : ""}`}>
         {/* Navigation Tabs & Actions */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-2.5">
           <div className="flex items-center gap-1.5">
