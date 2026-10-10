@@ -96,9 +96,11 @@ bool overrideBuzzer = false;
 bool manualBuzzerState = false;
 unsigned long overrideBuzzerUntilMs = 0;
 bool buzzerMuted = false; // Mode Senyap: Mematikan suara buzzer fisik untuk kemudahan debug
+bool motorMuted = false;  // Mode Senyap: Mematikan getaran motor fisik untuk kemudahan debug
 
 void processSerialCommand(String cmd);
 void checkSerialInput();
+void driveMotor(byte pwm);
 void driveBuzzer(bool on);
 void selfTest();
 
@@ -349,9 +351,11 @@ void processSerialCommand(String cmd) {
     Serial.println(F("  TEST VIBE MED -> Uji pola cepat rapat (Jarak Sedang 30-60cm) selama 4 detik"));
     Serial.println(F("  TEST VIBE NEAR-> Uji pola panjer kontinu (Jarak Dekat <30cm) selama 3 detik"));
     Serial.println(F("  MOTOR ON/OFF  -> Nyalakan / matikan motor getar terus-menerus"));
+    Serial.println(F("  MUTE MOTOR ON/OFF -> Mode Senyap: Matikan / nyalakan motor getar"));
     Serial.println(F("  TEST BUZZER   -> Bunyikan buzzer pola beep selama 1.5 detik (Pin D6)"));
     Serial.println(F("  BUZZER ON/OFF -> Nyalakan / matikan buzzer terus-menerus"));
     Serial.println(F("  MUTE ON/OFF   -> Mode Senyap: Matikan / nyalakan buzzer untuk debug"));
+    Serial.println(F("  MUTE ALL / UNMUTE ALL -> Mode Senyap untuk Buzzer & Motor sekaligus"));
     Serial.println(F("  VOL <5-255>   -> Atur volume buzzer PWM (misal: VOL 35 lembut, VOL 120 sedang)"));
     Serial.println(F("  TEST OUTPUT   -> Self-test motor getar & buzzer bersamaan"));
     Serial.println(F("  STOP          -> Matikan semua uji aktuator manual"));
@@ -660,6 +664,43 @@ void processSerialCommand(String cmd) {
     return;
   }
 
+  if (upper == "MUTE MOTOR" || upper == "MUTE MOTOR ON" || upper == "MUTE:MOTOR" || upper == "MOTOR MUTE" || upper == "MOTOR MUTE ON" || upper == "MUTE VIB" || upper == "VIB MUTE" || upper == "SILENT MOTOR") {
+    motorMuted = true;
+    analogWrite(PIN_VIBRATION, 0);
+    Serial.println(F("[MOTOR] MODE SENYAP GETAR DIAKTIFKAN: Motor getar fisik dimatikan untuk debug (Ketik MUTE MOTOR OFF untuk mengaktifkan kembali)."));
+    return;
+  }
+
+  if (upper == "UNMUTE MOTOR" || upper == "MUTE MOTOR OFF" || upper == "MOTOR MUTE OFF" || upper == "MOTOR UNMUTE" || upper == "UNMUTE VIB" || upper == "VIB UNMUTE" || upper == "LOUD MOTOR") {
+    motorMuted = false;
+    Serial.println(F("[MOTOR] MODE SENYAP GETAR DIMATIKAN: Getaran motor diaktifkan kembali."));
+    return;
+  }
+
+  if (upper == "MUTE MOTOR TOGGLE" || upper == "MOTOR MUTE TOGGLE" || upper == "MOTOR TOGGLE" || upper == "VIB TOGGLE") {
+    motorMuted = !motorMuted;
+    if (motorMuted) analogWrite(PIN_VIBRATION, 0);
+    Serial.print(F("[MOTOR] Status Mode Senyap Getar: "));
+    Serial.println(motorMuted ? F("AKTIF (MUTED)") : F("NONAKTIF (UNMUTED)"));
+    return;
+  }
+
+  if (upper == "MUTE ALL" || upper == "SILENT ALL" || upper == "MUTE:ALL") {
+    buzzerMuted = true;
+    motorMuted = true;
+    driveBuzzer(false);
+    analogWrite(PIN_VIBRATION, 0);
+    Serial.println(F("[AKTUATOR] SEMUA AKTUATOR SENYAP: Buzzer & Motor getar dimatikan untuk debug."));
+    return;
+  }
+
+  if (upper == "UNMUTE ALL" || upper == "LOUD ALL" || upper == "UNMUTE:ALL") {
+    buzzerMuted = false;
+    motorMuted = false;
+    Serial.println(F("[AKTUATOR] SEMUA AKTUATOR AKTIF: Buzzer & Motor getar diaktifkan kembali."));
+    return;
+  }
+
   if (upper == "TEST OUTPUT" || upper == "TEST ACTUATOR" || upper == "TEST ACTUATORS" || upper == "TEST:ACTUATORS") {
     Serial.println(F("[UJI AKTUATOR] Memulai Self-Test Semua Aktuator: Motor getar lalu Buzzer..."));
     selfTest();
@@ -919,6 +960,14 @@ bool buzzerPattern(AlertState state, unsigned long now) {
   return false;
 }
 
+void driveMotor(byte pwm) {
+  if (motorMuted) {
+    analogWrite(PIN_VIBRATION, 0);
+    return;
+  }
+  analogWrite(PIN_VIBRATION, pwm);
+}
+
 void driveBuzzer(bool on) {
   if (buzzerMuted) {
 #if WOKWI_SIMULATION
@@ -948,28 +997,28 @@ void updateOutputs(AlertState state) {
   if (overrideMotorUntilMs > 0) {
     if (now < overrideMotorUntilMs) {
       vibrationOn = true;
-      analogWrite(PIN_VIBRATION, manualMotorPwm > 0 ? manualMotorPwm : 255);
+      driveMotor(manualMotorPwm > 0 ? manualMotorPwm : 255);
     } else {
       overrideMotorUntilMs = 0;
       vibrationOn = false;
-      analogWrite(PIN_VIBRATION, 0);
+      driveMotor(0);
     }
   } else if (overridePatternUntilMs > 0) {
     if (now < overridePatternUntilMs) {
       vibrationOn = vibrationPattern(testPatternState, now);
-      analogWrite(PIN_VIBRATION, vibrationOn ? 255 : 0);
+      driveMotor(vibrationOn ? 255 : 0);
     } else {
       overridePatternUntilMs = 0;
       vibrationOn = false;
-      analogWrite(PIN_VIBRATION, 0);
+      driveMotor(0);
     }
   } else if (overrideMotor) {
     vibrationOn = (manualMotorPwm > 0);
-    analogWrite(PIN_VIBRATION, manualMotorPwm);
+    driveMotor(manualMotorPwm);
   } else {
     vibrationOn = vibrationPattern(state, now);
     // Tenaga getar penuh: PWM 255 (100% tegangan motor) untuk getaran yang jauh lebih terasa dan responsif
-    analogWrite(PIN_VIBRATION, vibrationOn ? 255 : 0);
+    driveMotor(vibrationOn ? 255 : 0);
   }
 
   // 2. Buzzer: Cek apakah sedang dalam mode uji/override manual
@@ -1004,9 +1053,9 @@ const __FlashStringHelper *stateName(AlertState state) {
 
 void selfTest() {
   Serial.println(F("[UJI AKTUATOR] 1. Menguji Motor Getar (Pin D5 PWM)..."));
-  analogWrite(PIN_VIBRATION, 220);
+  driveMotor(220);
   delay(400);
-  analogWrite(PIN_VIBRATION, 0);
+  driveMotor(0);
   delay(200);
 
   Serial.println(F("[UJI AKTUATOR] 2. Menguji Buzzer (Pin D6)..."));
@@ -1138,6 +1187,9 @@ void loop() {
     Serial.print(stateName(activeState));
     Serial.print(F(" | Motor: "));
     Serial.print(vibrationOn ? F("ON") : F("OFF"));
+    if (motorMuted) {
+      Serial.print(F(" [MUTED]"));
+    }
     Serial.print(F(" | Buzzer: "));
     if (activeState == FALL_ALERT) {
       Serial.print(F("SOS"));

@@ -1627,11 +1627,25 @@ export default function KatanaDashboard() {
       });
     }
 
-    // 3. Feedback Respon Perintah Serial Khusus Buzzer Mode Senyap
+    // 3. Feedback Respon Perintah Serial Khusus Aktuator Mode Senyap
     if (line.includes("[BUZZER] MODE SENYAP DIAKTIFKAN") || line.includes("Status Mode Senyap: AKTIF")) {
       setIsBuzzerMuted(true);
     } else if (line.includes("[BUZZER] MODE SENYAP DIMATIKAN") || line.includes("Status Mode Senyap: NONAKTIF")) {
       setIsBuzzerMuted(false);
+    }
+
+    if (line.includes("[MOTOR] MODE SENYAP GETAR DIAKTIFKAN") || line.includes("Status Mode Senyap Getar: AKTIF")) {
+      setIsMotorMuted(true);
+    } else if (line.includes("[MOTOR] MODE SENYAP GETAR DIMATIKAN") || line.includes("Status Mode Senyap Getar: NONAKTIF")) {
+      setIsMotorMuted(false);
+    }
+
+    if (line.includes("[AKTUATOR] SEMUA AKTUATOR SENYAP")) {
+      setIsBuzzerMuted(true);
+      setIsMotorMuted(true);
+    } else if (line.includes("[AKTUATOR] SEMUA AKTUATOR AKTIF")) {
+      setIsBuzzerMuted(false);
+      setIsMotorMuted(false);
     }
   };
 
@@ -2078,6 +2092,24 @@ export default function KatanaDashboard() {
               <span className="text-[11px] font-semibold">{isBuzzerMuted ? t.buzzerMuteBtn : t.buzzerUnmuteBtn}</span>
             </button>
 
+            {/* Motor Mute/Unmute Toggle Button (Mode Senyap Getar) */}
+            <button
+              onClick={toggleMotorMute}
+              title={isMotorMuted ? t.unmuteMotorTitle : t.muteMotorTitle}
+              className={`flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-mono font-medium transition-all cursor-pointer shrink-0 ${
+                isMotorMuted
+                  ? "bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700/50 shadow-2xs"
+                  : "bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700"
+              }`}
+            >
+              <Vibrate
+                className={`w-3.5 h-3.5 ${
+                  isMotorMuted ? "text-amber-500" : "text-zinc-500 dark:text-zinc-400"
+                } shrink-0`}
+              />
+              <span className="text-[11px] font-semibold">{isMotorMuted ? t.motorMuteBtn : t.motorUnmuteBtn}</span>
+            </button>
+
             {/* Connect USB Button (Fixed Width 176px / w-44) */}
             {!isConnected ? (
               <button
@@ -2192,20 +2224,41 @@ export default function KatanaDashboard() {
 
           {/* Actuator Status Badges (Locked Fixed Width 176px / w-44 to Prevent Jitter) */}
           <div className="flex items-center gap-2 shrink-0">
-            <div className="w-44 h-12 flex items-center gap-2.5 px-3 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs shrink-0">
-              <Vibrate className="w-4 h-4 text-zinc-500 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[9px] font-mono text-zinc-400 uppercase font-semibold">
-                  {t.haptic} (D5 PWM)
+            <div
+              onClick={toggleMotorMute}
+              title={isMotorMuted ? t.unmuteMotorTitle : t.muteMotorTitle}
+              className={`w-44 h-12 flex items-center gap-2.5 px-3 rounded-xl bg-white dark:bg-zinc-900 border transition-all cursor-pointer shadow-2xs shrink-0 select-none ${
+                isMotorMuted
+                  ? "border-amber-300 dark:border-amber-700/50 bg-amber-50/40 dark:bg-amber-950/20"
+                  : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700"
+              }`}
+            >
+              <Vibrate
+                className={`w-4 h-4 ${isMotorMuted ? "text-amber-500" : "text-zinc-500"} shrink-0`}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between text-[9px] font-mono text-zinc-400 uppercase font-semibold">
+                  <span>{t.haptic} (D5 PWM)</span>
+                  {isMotorMuted && (
+                    <span className="text-[8px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/60 px-1 rounded">
+                      MUTE
+                    </span>
+                  )}
                 </div>
                 <div
                   className={`text-xs font-mono font-bold truncate ${
-                    data.motor === "ON"
+                    isMotorMuted
+                      ? "text-amber-600 dark:text-amber-400"
+                      : data.motor === "ON"
                       ? "text-amber-600 dark:text-amber-400 animate-pulse"
                       : "text-zinc-500"
                   }`}
                 >
-                  {data.motor === "ON" ? t.vibrating : t.idle}
+                  {isMotorMuted
+                    ? (data.motor === "ON" ? "GETAR [MUTED]" : t.motorMuted)
+                    : data.motor === "ON"
+                    ? t.vibrating
+                    : t.idle}
                 </div>
               </div>
             </div>
@@ -3791,7 +3844,19 @@ export default function KatanaDashboard() {
                         : "bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400"
                     }`}
                   >
-                    {isBuzzerMuted ? "MUTE (ON)" : "MUTE (OFF)"}
+                    {isBuzzerMuted ? "BUZ MUTE (ON)" : "BUZ MUTE"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleMotorMute}
+                    title={isMotorMuted ? t.unmuteMotorTitle : t.muteMotorTitle}
+                    className={`px-2 py-1 border rounded-lg font-mono text-[11px] font-semibold transition-all cursor-pointer ${
+                      isMotorMuted
+                        ? "bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:border-amber-500"
+                        : "bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400"
+                    }`}
+                  >
+                    {isMotorMuted ? "VIB MUTE (ON)" : "VIB MUTE"}
                   </button>
                 </div>
               </div>
