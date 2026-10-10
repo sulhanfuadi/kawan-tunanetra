@@ -58,7 +58,7 @@ Kondisi di mana pengguna terjatuh atau tongkat terlepas ke tanah. Membutuhkan pe
 ### KASUS 2: Tepi Turunan / Lubang Jalan / Bibir Tangga (Prioritas 2 - Bahaya Taktil)
 Kondisi di mana ada penurunan permukaan jalan mendadak di depan langkah tunanetra.
 
-- **Kondisi Logika**: `downConnected == true` DAN jarak langsung ke permukaan bawah `downCm > 45 cm` (on-point, normal lantai ~25-38 cm, anak tangga/lubang > 45 cm) DAN kemiringan tongkat `tiltDeg < 45.0°` selama `>= 200 ms`.
+- **Kondisi Logika**: `downConnected == true` DAN jarak langsung ke permukaan bawah `downCm > 45 cm` (on-point, normal lantai ~25-38 cm, anak tangga/lubang > 45 cm) selama `>= 200 ms` (independen dari sensor IMU).
 - **Pengujian Fisik Riil**: Pegang alat menghadap ke bawah di atas meja (~30 cm), lalu geser keluar bibir meja sehingga sensor menghadap langsung ke lantai ruang yang lebih dalam (> 45 cm).
 - **Simulasi Serial / Dashboard**: Ketik `DROP` atau `DOWN 55` lalu Enter.
 - **Respon Aktuator**:
