@@ -34,9 +34,9 @@ const int FRONT_MEDIUM_CM     = 60;
 const int FRONT_NEAR_CM       = 30;
 const int DOWN_DROP_THRESHOLD_CM = 45; // Ambang batas langsung sensor ke tanah (normal lantai ~25-38 cm, turunan/lubang > 45 cm)
 const int WATER_LIMIT         = 400; // Diset ke 400 sesuai kalibrasi pengguna (ADC > 400 dianggap basah)
-const float FALL_TILT_LIMIT_DEG = 60.0;
+const float FALL_TILT_LIMIT_DEG = 50.0;
 const unsigned long DROP_DEBOUNCE_MS = 200;
-const unsigned long FALL_CONFIRM_MS  = 2000;
+const unsigned long FALL_CONFIRM_MS  = 1200;
 
 // Volume Buzzer PWM (0 - 255): Default 35 (~15% duty cycle, suara lembut dan tidak memekakkan telinga)
 byte buzzerVolumePwm = 35;
@@ -206,11 +206,9 @@ bool readMPUAccel(float &ax, float &ay, float &az) {
   int16_t rawX = (Wire.read() << 8) | Wire.read();
   int16_t rawY = (Wire.read() << 8) | Wire.read();
   int16_t rawZ = (Wire.read() << 8) | Wire.read();
-  // Kalibrasi Fisik: Sumbu Z sensor sejajar panjang batang tongkat (ax)
-  // Sumbu X sensor menghadap tegak lurus ke depan (az), Sumbu Y melintang (ay)
-  ax = rawZ / 16384.0f;
+  ax = rawX / 16384.0f;
   ay = rawY / 16384.0f;
-  az = rawX / 16384.0f;
+  az = rawZ / 16384.0f;
   return true;
 }
 
