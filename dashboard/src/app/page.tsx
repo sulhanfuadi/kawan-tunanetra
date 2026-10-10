@@ -258,8 +258,8 @@ const translations = {
     bracketWet: "[BASAH]",
 
     // Meter scale labels
-    meterBaseline: "Baseline (30cm)",
-    meterDropLimit: "Batas >15cm",
+    meterBaseline: "15cm (Lantai)",
+    meterDropLimit: "Batas >45cm",
     meterTiltUpright: "0° Tegak",
     meterTiltLimit: "Batas >30° (SOS)",
     meterTiltFlat: "90° Datar",
@@ -267,7 +267,7 @@ const translations = {
     meterWaterLimit: "Batas >400",
     meterWaterWet: "1023 Basah",
     unitDegrees: "derajat",
-    unitDelta: "cm delta",
+    unitDelta: "cm",
 
     darkTheme: "Gelap",
     lightTheme: "Terang",
@@ -437,8 +437,8 @@ const translations = {
     bracketWet: "[WET]",
 
     // Meter scale labels
-    meterBaseline: "Baseline (30cm)",
-    meterDropLimit: "Limit >15cm",
+    meterBaseline: "15cm (Floor)",
+    meterDropLimit: "Limit >45cm",
     meterTiltUpright: "0° Upright",
     meterTiltLimit: "Limit >30° (SOS)",
     meterTiltFlat: "90° Flat",
@@ -446,7 +446,7 @@ const translations = {
     meterWaterLimit: "Limit >400",
     meterWaterWet: "1023 Wet",
     unitDegrees: "degrees",
-    unitDelta: "cm delta",
+    unitDelta: "cm",
 
     darkTheme: "Dark",
     lightTheme: "Light",
@@ -2595,16 +2595,11 @@ export default function KatanaDashboard() {
                     {data.downConnected && data.downCm !== null ? `${data.downCm}` : "--"}
                   </span>
                   <span className="text-xs font-mono font-semibold text-zinc-400">cm</span>
-                  {data.downConnected && data.downCm !== null && (
-                    <span className="text-[10px] font-mono font-medium text-zinc-500 dark:text-zinc-400">
-                      (Δ +{Math.max(0, data.downCm - 25)}cm)
-                    </span>
-                  )}
                 </div>
                 <span className="text-[10px] font-mono font-bold text-zinc-500">
                   {!data.downConnected
                     ? t.bracketOffline
-                    : data.downCm! - 25 > 15
+                    : data.downCm! > 45
                     ? t.bracketHazard
                     : t.bracketNormal}
                 </span>
@@ -2617,19 +2612,19 @@ export default function KatanaDashboard() {
                     className={`h-full rounded-full transition-all duration-300 ${
                       !data.downConnected
                         ? "w-0"
-                        : data.downCm! - 25 > 15
+                        : data.downCm! > 45
                         ? "bg-rose-500"
                         : "bg-zinc-700 dark:bg-zinc-300"
                     }`}
                     style={{
-                      width: `${data.downConnected && data.downCm !== null ? Math.min(100, Math.max(8, ((data.downCm - 25) / 40) * 100)) : 0}%`
+                      width: `${data.downConnected && data.downCm !== null ? Math.min(100, Math.max(8, ((data.downCm - 15) / (75 - 15)) * 100)) : 0}%`
                     }}
                   />
                 </div>
                 <div className="flex justify-between text-[9px] font-mono text-zinc-400">
                   <span>{t.meterBaseline}</span>
                   <span className="text-rose-500 font-bold">{t.meterDropLimit}</span>
-                  <span>+40cm</span>
+                  <span>75cm</span>
                 </div>
               </div>
 
@@ -2638,7 +2633,7 @@ export default function KatanaDashboard() {
                 <div className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300 truncate">
                   {!data.downConnected
                     ? t.sensorDisconnected
-                    : data.downCm! - 25 > 15
+                    : data.downCm! > 45
                     ? t.downHazard
                     : t.downClear}
                 </div>
