@@ -34,7 +34,6 @@ const int FRONT_MEDIUM_CM     = 60;
 const int FRONT_NEAR_CM       = 30;
 const int DOWN_DROP_THRESHOLD_CM = 45; // Ambang batas langsung sensor ke tanah (normal lantai ~25-38 cm, turunan/lubang > 45 cm)
 const int WATER_LIMIT         = 400; // Diset ke 400 sesuai kalibrasi pengguna (ADC > 400 dianggap basah)
-const float DROP_TILT_MAX_DEG = 45.0;
 const float FALL_TILT_LIMIT_DEG = 60.0;
 const unsigned long DROP_DEBOUNCE_MS = 200;
 const unsigned long FALL_CONFIRM_MS  = 2000;
@@ -858,7 +857,7 @@ void updateInputs() {
 
   // Filter deteksi turunan: HANYA aktif jika sensor bawah benar-benar TERHUBUNG (bukan lepas)
   // On-Point: Jarak langsung sensor ke permukaan bawah melebihi batas normal lantai (> 45 cm)
-  bool dropCandidate = downConnected && (downCm > DOWN_DROP_THRESHOLD_CM) && (!mpuConnected || tiltDeg < DROP_TILT_MAX_DEG);
+  bool dropCandidate = downConnected && (downCm > DOWN_DROP_THRESHOLD_CM);
   if (dropCandidate) {
     if (dropStartMs == 0) dropStartMs = now;
     dropConfirmed = (now - dropStartMs >= DROP_DEBOUNCE_MS);

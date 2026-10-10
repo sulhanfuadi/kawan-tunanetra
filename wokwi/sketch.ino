@@ -36,7 +36,6 @@ const int FRONT_MEDIUM_CM = 60;
 const int FRONT_NEAR_CM = 30;
 const int DOWN_DROP_THRESHOLD_CM = 45; // Ambang batas langsung sensor ke tanah
 const int WATER_LIMIT = 650;
-const float DROP_TILT_MAX_DEG = 45.0;
 const float FALL_TILT_LIMIT_DEG = 60.0;
 const unsigned long DROP_DEBOUNCE_MS = 200;
 const unsigned long FALL_CONFIRM_MS = 2000;
@@ -239,8 +238,8 @@ void updateInputs() {
     }
   }
 
-  // Suppress a false drop alert when the user intentionally lifts/tilts the cane.
-  bool dropCandidate = downCm > DOWN_DROP_THRESHOLD_CM && tiltDeg < DROP_TILT_MAX_DEG;
+  // Filter deteksi turunan: Murni dievaluasi dari jarak langsung sensor bawah
+  bool dropCandidate = downCm > DOWN_DROP_THRESHOLD_CM;
   if (dropCandidate) {
     if (dropStartMs == 0) dropStartMs = now;
     dropConfirmed = (now - dropStartMs >= DROP_DEBOUNCE_MS);
