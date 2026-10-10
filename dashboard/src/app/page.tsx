@@ -572,6 +572,7 @@ export default function KatanaDashboard() {
   const [isTestingMotor, setIsTestingMotor] = useState<boolean>(false);
   const [isTestingBuzzer, setIsTestingBuzzer] = useState<boolean>(false);
   const [isBuzzerMuted, setIsBuzzerMuted] = useState<boolean>(false);
+  const [isMotorMuted, setIsMotorMuted] = useState<boolean>(false);
 
   // Serial references
   const portRef = useRef<any>(null);
@@ -639,6 +640,20 @@ export default function KatanaDashboard() {
       nextMute
         ? "[BUZZER] Mode Senyap diaktifkan: Suara Buzzer fisik dimatikan untuk debug."
         : "[BUZZER] Mode Senyap dinonaktifkan: Suara Buzzer fisik diaktifkan kembali."
+    );
+  };
+
+  // Toggle mode senyap getaran motor (mute/unmute motor haptik untuk debugging)
+  const toggleMotorMute = () => {
+    const nextMute = !isMotorMuted;
+    setIsMotorMuted(nextMute);
+    if (isConnected) {
+      sendSerial(nextMute ? "MUTE MOTOR ON" : "MUTE MOTOR OFF");
+    }
+    addLog(
+      nextMute
+        ? "[MOTOR] Mode Senyap diaktifkan: Getaran Motor fisik dimatikan untuk debug."
+        : "[MOTOR] Mode Senyap dinonaktifkan: Getaran Motor fisik diaktifkan kembali."
     );
   };
 
@@ -1507,16 +1522,16 @@ export default function KatanaDashboard() {
       const st = line.match(/STATE:\s*([^|]+)/);
       if (st) parsedState = st[1].trim();
 
-      const motor = line.match(/Motor:\s*(ON|OFF)/i);
-      if (motor) parsedMotor = motor[1].toUpperCase();
+      const motorMatch = line.match(/Motor:\s*(ON|OFF)(?:\s*\[(MUTED)\])?/i);
+      if (motorMatch) {
+        parsedMotor = motorMatch[1].toUpperCase();
+        setIsMotorMuted(Boolean(motorMatch[2]));
+      }
 
-      const buz = line.match(/Buzzer:\s*(SOS|DIAM|BEEP)/i);
-      if (buz) parsedBuzzer = buz[1].toUpperCase();
-
-      if (line.includes("[MUTED]")) {
-        setIsBuzzerMuted(true);
-      } else if (buz && !line.includes("[MUTED]")) {
-        setIsBuzzerMuted(false);
+      const buzMatch = line.match(/Buzzer:\s*(SOS|DIAM|BEEP)(?:\s*\[(MUTED)\])?/i);
+      if (buzMatch) {
+        parsedBuzzer = buzMatch[1].toUpperCase();
+        setIsBuzzerMuted(Boolean(buzMatch[2]));
       }
 
       setData((prev) => {
