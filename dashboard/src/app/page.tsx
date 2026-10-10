@@ -46,6 +46,16 @@ import {
 import { parseHex } from "../utils/hexParser";
 import { Stk500Flasher } from "../utils/stk500";
 import DataVisualizer from "../components/DataVisualizer";
+import dynamic from "next/dynamic";
+
+const Cane3DVisualizer = dynamic(() => import("../components/Cane3DVisualizer"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-96 bg-zinc-950 flex items-center justify-center text-zinc-500 font-mono text-xs">
+      Memuat Engine 3D Three.js...
+    </div>
+  )
+});
 
 interface TelemetryData {
   frontConnected: boolean;
@@ -123,6 +133,11 @@ const translations = {
     idle: "IDLE (OFF)",
     sosAlarm: "ALARM SOS",
     silent: "DIAM (OFF)",
+    motorMuted: "SENYAP (MUTED)",
+    motorMuteBtn: "Motor: MUTE",
+    motorUnmuteBtn: "Motor: ON",
+    muteMotorTitle: "Mode Senyap: Matikan getaran motor fisik untuk debug",
+    unmuteMotorTitle: "Mode Senyap Aktif: Klik untuk menyalakan getaran motor kembali",
     buzzerMuted: "SENYAP (MUTED)",
     buzzerMuteBtn: "Buzzer: MUTE",
     buzzerUnmuteBtn: "Buzzer: ON",
@@ -225,7 +240,7 @@ const translations = {
     instantScenarios: "Skenario Bahaya:",
     precisionSliders: "Pengaturan Nilai Presisi:",
     frontDistLabel: "Jarak Depan:",
-    downDeltaLabel: "Turunan Bawah (+Delta):",
+    downDeltaLabel: "Jarak Permukaan Bawah:",
     tiltLabel: "Kemiringan MPU:",
     waterLabel: "Sensor Air (A0):",
     wetState: "(Basah)",
@@ -297,6 +312,11 @@ const translations = {
     idle: "IDLE (OFF)",
     sosAlarm: "SOS ALARM",
     silent: "SILENT (OFF)",
+    motorMuted: "MUTED (OFF)",
+    motorMuteBtn: "Motor: MUTE",
+    motorUnmuteBtn: "Motor: ON",
+    muteMotorTitle: "Silent Mode: Silence physical haptic vibration for debugging",
+    unmuteMotorTitle: "Silent Mode Active: Click to restore physical haptic vibration",
     buzzerMuted: "MUTED (SILENT)",
     buzzerMuteBtn: "Buzzer: MUTE",
     buzzerUnmuteBtn: "Buzzer: ON",
@@ -399,7 +419,7 @@ const translations = {
     instantScenarios: "Hazard Scenarios:",
     precisionSliders: "Precision Parameter Sliders:",
     frontDistLabel: "Front Distance:",
-    downDeltaLabel: "Floor Drop (+Delta):",
+    downDeltaLabel: "Ground Surface Distance:",
     tiltLabel: "Cane Tilt (MPU):",
     waterLabel: "Water Sensor (A0):",
     wetState: "(Wet)",
@@ -497,7 +517,7 @@ export default function KatanaDashboard() {
   // Demo mode
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [demoFront, setDemoFront] = useState(85);
-  const [demoDown, setDemoDown] = useState(0);
+  const [demoDown, setDemoDown] = useState(30);
   const [demoTilt, setDemoTilt] = useState(12);
   const [demoWater, setDemoWater] = useState(210);
 
@@ -1606,7 +1626,7 @@ export default function KatanaDashboard() {
     if (enabled) {
       sendSerial("DEMO ON");
       sendSerial(`FRONT ${demoFront}`);
-      sendSerial(`DOWN ${30 + demoDown}`);
+      sendSerial(`DOWN ${demoDown}`);
       sendSerial(`TILT ${demoTilt}`);
       sendSerial(`WATER ${demoWater}`);
     } else {
@@ -1623,7 +1643,7 @@ export default function KatanaDashboard() {
       setDemoTilt(75);
       sendSerial("FALL");
     } else if (scenario === "DROP") {
-      setDemoDown(25);
+      setDemoDown(60);
       setDemoTilt(14);
       sendSerial("DROP");
     } else if (scenario === "WET") {
@@ -1634,7 +1654,7 @@ export default function KatanaDashboard() {
       sendSerial("NEAR");
     } else if (scenario === "NORMAL") {
       setDemoFront(120);
-      setDemoDown(0);
+      setDemoDown(30);
       setDemoTilt(10);
       setDemoWater(180);
       sendSerial("NORMAL");
@@ -1648,7 +1668,7 @@ export default function KatanaDashboard() {
 
   const handleSliderDown = (val: number) => {
     setDemoDown(val);
-    sendSerial(`DOWN ${30 + val}`);
+    sendSerial(`DOWN ${val}`);
   };
 
   const handleSliderTilt = (val: number) => {
@@ -1765,7 +1785,7 @@ export default function KatanaDashboard() {
     if (demoTilt > 60) {
       st = "TONGKAT_JATUH";
       buz = "SOS";
-    } else if (demoDown > 15) {
+    } else if (demoDown > 45) {
       st = "TEPI_TURUNAN";
       mot = "ON";
     } else if (demoWater > 400) {
@@ -1786,7 +1806,7 @@ export default function KatanaDashboard() {
       frontConnected: true,
       frontCm: demoFront,
       downConnected: true,
-      downCm: 30 + demoDown,
+      downCm: demoDown,
       mpuConnected: true,
       tiltDeg: demoTilt,
       waterConnected: true,
@@ -2753,88 +2773,19 @@ export default function KatanaDashboard() {
           
           <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-zinc-200 dark:divide-zinc-800">
             
-            {/* Left 7 Columns: 2D CAD Blueprint Visualizer (DI-HIDE SEMENTARA, KODE UTUH DIPERTAHANKAN) */}
-            {false && (
-            <div className="lg:col-span-7 flex flex-col justify-between">
-              
-              {/* CAD Canvas Header */}
-              <div className="px-5 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                    <Activity className="w-3.5 h-3.5 text-zinc-500" />
-                    {t.cadTitle}
-                  </h3>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                    {t.cadDesc}
-                  </p>
-                </div>
-                <span className="w-32 h-7 flex items-center justify-center font-mono text-xs font-bold bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md shrink-0">
-                  {t.cadAngle} {data.mpuConnected && data.tiltDeg !== null ? data.tiltDeg!.toFixed(1) : "--"}°
-                </span>
-              </div>
-
-              {/* 2D CAD Blueprint Simulation Canvas */}
-              <div className="h-80 bg-blueprint-grid bg-zinc-50 dark:bg-zinc-950 relative flex items-center justify-center overflow-hidden">
-                
-                {/* Protractor Guidelines */}
-                <div className="absolute bottom-8 w-72 h-36 border-t border-l border-r border-dashed border-zinc-300 dark:border-zinc-800 rounded-t-full pointer-events-none" />
-                <div className="absolute bottom-8 w-48 h-24 border-t border-l border-r border-dashed border-zinc-200 dark:border-zinc-850 rounded-t-full pointer-events-none" />
-
-                {/* Angle Tick Marks */}
-                <span className="absolute bottom-9 left-10 text-[9px] font-mono text-zinc-400">80°</span>
-                <span className="absolute bottom-28 left-20 text-[9px] font-mono text-zinc-400">60°</span>
-                <span className="absolute top-8 text-[9px] font-mono text-zinc-400">0°</span>
-                <span className="absolute bottom-28 right-20 text-[9px] font-mono text-zinc-400">30°</span>
-
-                {/* Floor Horizon Line */}
-                <div className="absolute bottom-8 left-0 right-0 h-0.5 bg-zinc-300 dark:bg-zinc-700 flex justify-between px-4">
-                  <span className="text-[10px] text-zinc-400 font-mono -mt-4">{t.floorRef}</span>
-                  <span className="text-[10px] text-zinc-400 font-mono -mt-4">{t.horizonPlanar}</span>
-                </div>
-
-                {/* Virtual Cane Vector */}
-                <div
-                  className="w-1.5 bg-zinc-900 dark:bg-white h-52 absolute bottom-8 origin-bottom transition-transform duration-200 ease-out"
-                  style={{
-                    transform: `rotate(${Math.min(85, data.mpuConnected && data.tiltDeg !== null ? data.tiltDeg! : 0)}deg)`
-                  }}
-                >
-                  {/* Arm Cuff & Handle Bracket */}
-                  <div className="w-8 h-2 bg-zinc-900 dark:bg-white -left-6.5 -top-3 absolute rounded-xs" />
-                  <div className="w-7 h-2 bg-zinc-900 dark:bg-white -left-5.5 top-14 absolute rounded-xs shadow-xs" />
-                  
-                  {/* Ultrasonic Sensor Nodes */}
-                  <div
-                    className={`w-3 h-3 rounded-full -left-0.75 top-24 absolute border border-white shadow-xs ${
-                      data.frontConnected ? "bg-emerald-500" : "bg-zinc-400"
-                    }`}
-                    title="HC-SR04 Depan"
-                  />
-                  <div
-                    className={`w-3 h-3 rounded-full -left-0.75 bottom-10 absolute border border-white shadow-xs ${
-                      data.downConnected ? "bg-sky-500" : "bg-zinc-400"
-                    }`}
-                    title="HC-SR04 Bawah"
-                  />
-                  
-                  {/* Rubber Tip Foot */}
-                  <div className="w-3.5 h-2.5 bg-zinc-800 dark:bg-zinc-200 -left-1 -bottom-1 absolute rounded-xs" />
-                </div>
-
-                {/* Fall Alert Overlay */}
-                {data.mpuConnected && data.tiltDeg !== null && data.tiltDeg! > 30 && (
-                  <div className="absolute top-4 px-4 py-2 bg-rose-600 text-white font-extrabold text-xs rounded-xl shadow-lg border border-rose-500 animate-bounce tracking-wide flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4" />
-                    {t.fallWarning}
-                  </div>
-                )}
-              </div>
-
+            {/* Left 7 Columns: 3D Cane IMU Orientation & Calibration Lab */}
+            <div className="lg:col-span-7 flex flex-col p-3">
+              <Cane3DVisualizer
+                rawTiltDeg={data.tiltDeg}
+                mpuConnected={data.mpuConnected}
+                frontConnected={data.frontConnected}
+                downConnected={data.downConnected}
+                isSimMode={isDemoMode}
+              />
             </div>
-            )}
 
-            {/* Right Columns: Diagnostics Deck & Live Terminal */}
-            <div className="lg:col-span-12 flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800 bg-zinc-50/20 dark:bg-zinc-900/10">
+            {/* Right 5 Columns: Diagnostics Deck & Live Terminal */}
+            <div className="lg:col-span-5 flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800 bg-zinc-50/20 dark:bg-zinc-900/10">
               
               {/* Hardware Pin Status Deck */}
               <div className="p-4 space-y-2.5">
@@ -3327,12 +3278,12 @@ export default function KatanaDashboard() {
                 <div className="p-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg space-y-1">
                   <div className="flex justify-between font-mono text-[11px]">
                     <span className="text-zinc-500">{t.downDeltaLabel}</span>
-                    <span className="font-bold">+{demoDown} cm</span>
+                    <span className="font-bold">{demoDown} cm</span>
                   </div>
                   <input
                     type="range"
-                    min="0"
-                    max="45"
+                    min="15"
+                    max="90"
                     value={demoDown}
                     onChange={(e) => handleSliderDown(parseInt(e.target.value, 10))}
                     className="w-full accent-zinc-900 dark:accent-white cursor-pointer"
