@@ -481,7 +481,8 @@ export default function Cane3DVisualizer({
   const handleCopyConfig = () => {
     const configSnippet = `// ========================================================
 // KATANA SMART CANE - IMU MPU6050 CALIBRATION CONFIGURATION
-// Posisi Fisik Sensor: Sisi Kanan Batang Tongkat (+X)
+// Posisi Fisik: Muka Depan Batang Tongkat (+Z), ~70 cm dari bawah
+// Orientasi Sumbu: Y (Vertikal Batang), X (Lateral Gagang), Z (Depan)
 // Dihasilkan dari Web Dashboard Katana 3D Calibration Lab
 // ========================================================
 
@@ -491,7 +492,7 @@ export default function Cane3DVisualizer({
 // 1. Parameter Offset Kalibrasi Posisi
 const float MPU_PITCH_OFFSET     = ${pitchOffset.toFixed(2)}f;  // Koreksi tegak lurus (0° Plumb Zero)
 const float MPU_ROLL_OFFSET      = ${rollOffset.toFixed(2)}f;   // Koreksi kemiringan lateral
-const float MPU_CLAMP_TWIST_DEG  = ${clampTwist.toFixed(2)}f;   // Sudut pelintir klem pipa silinder kanan
+const float MPU_CLAMP_TWIST_DEG  = ${clampTwist.toFixed(2)}f;   // Sudut pelintir dudukan pada batang tongkat
 const bool  MPU_INVERT_PITCH     = ${invertPitch ? "true" : "false"};
 const bool  MPU_INVERT_ROLL      = ${invertRoll ? "true" : "false"};
 const bool  MPU_SWAP_AXES        = ${swapAxes ? "true" : "false"};   // Tukar Pitch & Roll jika orientasi chip memerlukan
@@ -738,44 +739,56 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     eyeDown2.rotation.x = (Math.PI * 3) / 4;
     caneRoot.add(eyeDown2);
 
-    // IMU Sensor Group (Sisi Kanan Batang Tongkat / +X dengan Twist Mount)
+    // IMU Sensor Assembly (~70 cm dari bawah tongkat di muka depan +Z per foto fisik asli)
     const imuMountGroup = new THREE.Group();
-    imuMountGroup.position.set(0, 0.75, 0);
+    imuMountGroup.position.set(0, 0.70, 0);
     imuMountGroupRef.current = imuMountGroup;
     caneRoot.add(imuMountGroup);
 
-    // Pipe Clamp Bracket
-    const clampGeo = new THREE.CylinderGeometry(0.029, 0.029, 0.07, 16, 1, true, -Math.PI / 4, Math.PI / 2);
-    const clampMat = new THREE.MeshStandardMaterial({ color: 0x3f3f46, metalness: 0.5, roughness: 0.5 });
-    const clampMesh = new THREE.Mesh(clampGeo, clampMat);
-    imuMountGroup.add(clampMesh);
+    // Mini Breadboard Base (putih dengan tape hitam pengikat ke pipa per foto fisik)
+    const breadboardGeo = new THREE.BoxGeometry(0.065, 0.12, 0.012);
+    const breadboardMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f5, roughness: 0.35, metalness: 0.1 });
+    const breadboardMesh = new THREE.Mesh(breadboardGeo, breadboardMat);
+    breadboardMesh.position.set(0, 0.01, 0.032); // Menempel di muka depan batang (+Z)
+    imuMountGroup.add(breadboardMesh);
 
-    // IMU PCB Module (menempel di sisi kanan / +X)
-    const imuPcbGeo = new THREE.BoxGeometry(0.012, 0.06, 0.06);
-    const imuMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, metalness: 0.3, roughness: 0.5 });
+    // Lakban / Tape Hitam Pengikat ke Batang Pipa (per foto fisik)
+    const tapeTopGeo = new THREE.CylinderGeometry(0.028, 0.028, 0.03, 16);
+    const tapeMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85, metalness: 0.1 });
+    const tapeTopMesh = new THREE.Mesh(tapeTopGeo, tapeMat);
+    tapeTopMesh.position.set(0, 0.06, 0);
+    imuMountGroup.add(tapeTopMesh);
+
+    const tapeBtmMesh = new THREE.Mesh(tapeTopGeo, tapeMat);
+    tapeBtmMesh.position.set(0, -0.04, 0);
+    imuMountGroup.add(tapeBtmMesh);
+
+    // IMU PCB Module GY-521 / MPU-6050 (Biru tua, menghadap ke depan +Z)
+    const imuPcbGeo = new THREE.BoxGeometry(0.042, 0.036, 0.006);
+    const imuMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, metalness: 0.3, roughness: 0.4 });
     const imuMesh = new THREE.Mesh(imuPcbGeo, imuMat);
-    imuMesh.position.set(0.034, 0, 0);
+    imuMesh.position.set(0, 0.042, 0.041);
     imuMountGroup.add(imuMesh);
 
-    // IC Chip MPU-6050
-    const chipGeo = new THREE.BoxGeometry(0.006, 0.02, 0.02);
-    const chipMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.2 });
+    // IC Chip MPU-6050 (QFN Hitam di tengah PCB)
+    const chipGeo = new THREE.BoxGeometry(0.016, 0.016, 0.004);
+    const chipMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.2 });
     const chipMesh = new THREE.Mesh(chipGeo, chipMat);
-    chipMesh.position.set(0.042, 0, 0);
+    chipMesh.position.set(0, 0.042, 0.046);
     imuMountGroup.add(chipMesh);
 
-    // IMU Status LED
-    const ledGeo = new THREE.BoxGeometry(0.006, 0.012, 0.01);
-    const ledMat = new THREE.MeshBasicMaterial({ color: mpuConnected ? 0xef4444 : 0x52525b });
+    // IMU Status LED (Hijau menyala di sisi kanan PCB per foto fisik)
+    const ledGeo = new THREE.BoxGeometry(0.005, 0.005, 0.003);
+    const ledMat = new THREE.MeshBasicMaterial({ color: mpuConnected ? 0x22c55e : 0x52525b });
     const ledMesh = new THREE.Mesh(ledGeo, ledMat);
-    ledMesh.position.set(0.042, 0.018, -0.018);
+    ledMesh.position.set(0.014, 0.042, 0.047);
     imuMountGroup.add(ledMesh);
 
-    // Pin Header Jumper
-    const pinHeaderGeo = new THREE.BoxGeometry(0.012, 0.015, 0.048);
+    // Pin Header Jumper (di sisi bawah modul MPU, menghubungkan ke breadboard)
+    const pinHeaderGeo = new THREE.BoxGeometry(0.036, 0.01, 0.008);
     const pinHeaderMat = new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.8, roughness: 0.3 });
     const pinHeaderMesh = new THREE.Mesh(pinHeaderGeo, pinHeaderMat);
-    pinHeaderMesh.position.set(0.034, -0.04, 0);
+    pinHeaderMesh.position.set(0, 0.02, 0.041);
     imuMountGroup.add(pinHeaderMesh);
 
     // Render loop
@@ -940,7 +953,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
             3D Cane Orientation & Comprehensive Calibration Suite
           </h3>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
-            MPU6050 Sisi Kanan (+X)
+            MPU6050 Muka Depan (+Z) ~70cm
           </span>
         </div>
 
@@ -1087,7 +1100,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
           </div>
           <div className="px-2.5 py-1 bg-sky-950/80 backdrop-blur-md border border-sky-800/60 rounded-md text-[11px] font-mono text-sky-300 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-sky-400 inline-block" />
-            Modul MPU6050: Sisi Kanan Batang (+X) {clampTwist !== 0 ? `[Twist ${clampTwist > 0 ? `+${clampTwist}` : clampTwist}°]` : ""}
+            Modul MPU6050: Muka Depan Batang (+Z) ~70cm {clampTwist !== 0 ? `[Twist ${clampTwist > 0 ? `+${clampTwist}` : clampTwist}°]` : ""}
           </div>
           <div className="px-2.5 py-1 bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-md text-[11px] font-mono text-zinc-400">
             Garis Putus-Putus: Referensi 0° Plumb Line Tegak Lurus
@@ -1684,14 +1697,14 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
                 {/* Column 2: Mounting Twist & Deadband */}
                 <div className="p-3 bg-zinc-950/80 border border-zinc-800 rounded-lg space-y-2.5">
                   <div className="text-[11px] font-bold text-zinc-200 flex items-center justify-between">
-                    <span>Geometri Klem Pipa Kanan</span>
-                    <span className="text-[10px] font-mono text-sky-400">Mount (+X)</span>
+                    <span>Geometri Dudukan Sensor</span>
+                    <span className="text-[10px] font-mono text-sky-400">Depan (+Z) ~70cm</span>
                   </div>
 
                   {/* Clamp Twist Slider */}
                   <div className="space-y-1">
                     <div className="flex justify-between text-[10px] font-mono text-zinc-400">
-                      <span>Kompensasi Pelintir Klem:</span>
+                      <span>Kompensasi Pelintir Dudukan:</span>
                       <span className="text-sky-300 font-bold">{clampTwist > 0 ? `+${clampTwist}°` : `${clampTwist}°`}</span>
                     </div>
                     <input
@@ -1703,7 +1716,7 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
                       className="w-full accent-sky-500 h-1.5 bg-zinc-800 rounded appearance-none cursor-pointer"
                     />
                     <div className="text-[9px] text-zinc-500 font-mono">
-                      Sesuaikan jika modul MPU6050 tidak persis sejajar di dinding pipa kanan.
+                      Sesuaikan jika modul MPU6050/breadboard sedikit miring/terpelintir pada batang tongkat.
                     </div>
                   </div>
 

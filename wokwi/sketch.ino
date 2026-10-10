@@ -231,7 +231,7 @@ void updateInputs() {
     if (readMPUAccel(ax, ay, az)) {
       float magnitude = sqrt(ax * ax + ay * ay + az * az);
       if (magnitude > 0.05) {
-        float ratio = fabs(az) / magnitude;
+        float ratio = fabs(ay) / magnitude; // Sumbu Y MPU6050 sejajar dengan batang vertikal tongkat
         ratio = constrain(ratio, 0.0f, 1.0f);
         tiltDeg = acos(ratio) * 180.0 / PI;
       }
