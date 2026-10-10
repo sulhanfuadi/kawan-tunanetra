@@ -65,7 +65,7 @@ MPU6050 (6-Axis IMU)       ---(I2C)----->                     ---(D6+BC547)-> 85
 
 ![KATANA Firmware Flowchart (Physical)](assets/flowchart_riil_v2.png)
 
-> State machine flowchart of the production firmware running on the physical Arduino Nano. Covers the `setup()` initialization sequence (baseline calibration sampling, IMU auto-address scan & bus recovery), the main `loop()` polling cycle, the deterministic hazard priority ladder evaluation, and serial override command parsing.
+> State machine flowchart of the production firmware running on the physical Arduino Nano. Covers the `setup()` initialization sequence (sensor health checks, IMU auto-address scan & bus recovery), the main `loop()` polling cycle, the deterministic hazard priority ladder evaluation, and serial override command parsing.
 
 ---
 
@@ -122,7 +122,7 @@ When multiple hazard conditions are detected simultaneously, the internal finite
 | Priority | Hazard Scenario | Sensor Trigger | Active State Name | Feedback Actuator Response |
 |:---:|---|---|---|---|
 | **1 (Highest)** | **Cane Dropped / Fallen User** | MPU6050: Tilt angle > 60 deg (or simulated > 30 deg) sustained for > 2.0s | `TONGKAT_JATUH` | Vibration motor stops; Buzzer sounds continuous acoustic Morse SOS pattern (`... --- ...`) |
-| **2** | **Drop-off / Pothole / Downward Stairs** | HC-SR04 Down: Ground distance increases by > 15 cm above calibrated baseline | `TEPI_TURUNAN` | 3 distinct high-intensity haptic pulses ("3 3 3") at 100% full power (PWM 255); Buzzer silent |
+| **2** | **Drop-off / Pothole / Downward Stairs** | HC-SR04 Down: Ground distance exceeds > 45 cm (normal floor surface ~25-38 cm) | `TEPI_TURUNAN` | 3 distinct high-intensity haptic pulses ("3 3 3") at 100% full power (PWM 255); Buzzer silent |
 | **3** | **Water Puddle / Flooded Surface** | Conductive Water Sensor Plate: Analog signal (A0) > 400 (calibrated wet threshold) | `PERMUKAAN_BASAH` | 2 sustained long haptic pulses ("2 2 2") at 100% full power (PWM 255); Buzzer silent |
 | **4** | **Frontal Obstacle (Critical Near)** | HC-SR04 Front: Distance < 30 cm | `OBJEK_DEKAT` | Continuous haptic vibration (100% PWM 255 nonstop) + Fast staccato acoustic BEEP (100ms ON / 100ms OFF) |
 | **5** | **Frontal Obstacle (Medium Distance)** | HC-SR04 Front: Distance between 30 cm and 60 cm | `OBJEK_SEDANG` | Rapid pulsing haptic vibration (480ms cycle: 260ms ON / 220ms OFF) at 100% PWM 255; Buzzer silent |
@@ -160,8 +160,8 @@ To ensure physical vibration alerts are felt unambiguously through thick walking
 6. Click **Upload**.
 7. Open **Serial Monitor** at **115200 baud** to view real-time diagnostics.
 
-> **Ground Distance Auto-Calibration**  
-> During `setup()`, the downward-facing ultrasonic sensor captures 12 samples over the floor to establish a reference `baseline` (~30 cm depending on cane height). Hold the cane upright at a natural walking stance for the first 2 seconds after power-on.
+> **Direct Ground Surface Distance (On-Point Detection)**  
+> The downward-facing ultrasonic sensor directly measures the absolute distance to the floor surface. When walking over normal flat terrain, the distance stays between 25–38 cm. When reaching a drop-off, staircase, or pothole (> 45 cm), the system immediately confirms a hazard without relying on startup baseline calibration.
 
 ---
 
@@ -179,7 +179,7 @@ To ensure physical vibration alerts are felt unambiguously through thick walking
 3. Open a Chromium-based browser (**Google Chrome**, **Brave**, or **Microsoft Edge**) at [http://localhost:3000](http://localhost:3000).
 4. Click **Hubungkan Arduino** and select the corresponding USB serial port.
 5. Key Dashboard Features:
-   - **Live Telemetry Overview**: Real-time obstacle radar clearance, ground drop-off delta, surface moisture conductivity (`KERING` vs `BASAH`), and actuator indicators.
+   - **Live Telemetry Overview**: Real-time obstacle radar clearance, direct ground surface distance, surface moisture conductivity (`KERING` vs `BASAH`), and actuator indicators.
    - **Data Visualizer Tab**: Multi-stream interactive line graphs with SVG pixel-perfect cursor tracking, crosshairs, pan/zoom, and FSM state transition timeline ribbons.
    - **Telemetry Data Logger & Auto-Archive**: Record sensor streams with sample indexing, relative elapsed time, hazard codes, and binary actuator flags; automatically save sessions to `archive/` via `/api/telemetry-archive`, export CSV, or copy TSV to clipboard for instant pasting into spreadsheet software.
    - **Sensor Integrity Badges**: Identifies active physical sensors (`RIIL`) versus disconnected cables (`LEPAS`).

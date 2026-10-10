@@ -10,7 +10,7 @@ Panduan pengujian langsung berbasis kondisi logika dan tangga prioritas keselama
 | Komponen | Pin Modul | Pin Nano | Deskripsi & Jalur |
 |---|:---:|:---:|---|
 | **Ultrasonik Depan (HC-SR04)** | TRIG / ECHO | **D3 / D2** | Rintangan depan (0 - 200 cm) |
-| **Ultrasonik Bawah (HC-SR04)** | TRIG / ECHO | **D9 / D8** | Turunan / lubang (baseline ~30 cm) |
+| **Ultrasonik Bawah (HC-SR04)** | TRIG / ECHO | **D9 / D8** | Turunan / lubang (ambang batas > 45 cm) |
 | **Buzzer Aktif 5V** | (+) | **D6** | Audio alarm darurat (Morse SOS) |
 | **Motor Getar (PWM)** | SIG | **D5** | Umpan balik taktil pada handle tongkat |
 | **IMU MPU6050 (GY-521)** | SDA / SCL | **A4 / A5** | Sudut orientasi & deteksi jatuh |
@@ -58,7 +58,7 @@ Kondisi di mana pengguna terjatuh atau tongkat terlepas ke tanah. Membutuhkan pe
 ### KASUS 2: Tepi Turunan / Lubang Jalan / Bibir Tangga (Prioritas 2 - Bahaya Taktil)
 Kondisi di mana ada penurunan permukaan jalan mendadak di depan langkah tunanetra.
 
-- **Kondisi Logika**: `downConnected == true` DAN selisih jarak bawah `dropDeltaCm > 15 cm` di atas baseline terkalibrasi (contoh: baseline 30 cm, jarak terukur > 45 cm) DAN kemiringan tongkat `tiltDeg < 45.0°` selama `>= 200 ms`.
+- **Kondisi Logika**: `downConnected == true` DAN jarak langsung ke permukaan bawah `downCm > 45 cm` (on-point, normal lantai ~25-38 cm, anak tangga/lubang > 45 cm) DAN kemiringan tongkat `tiltDeg < 45.0°` selama `>= 200 ms`.
 - **Pengujian Fisik Riil**: Pegang alat menghadap ke bawah di atas meja (~30 cm), lalu geser keluar bibir meja sehingga sensor menghadap langsung ke lantai ruang yang lebih dalam (> 45 cm).
 - **Simulasi Serial / Dashboard**: Ketik `DROP` atau `DOWN 55` lalu Enter.
 - **Respon Aktuator**:
@@ -123,7 +123,7 @@ Kondisi rintangan mulai terdeteksi di kejauhan agar pengguna bersiap mengambil j
 ### KASUS 7: Jalur Aman / Normal Walkway (Prioritas 7 - Kondisi Normal)
 Kondisi jalan rata tanpa rintangan dalam radius aman.
 
-- **Kondisi Logika**: Depan `>= 100 cm`, Bawah delta `<= 15 cm`, Kemiringan `<= 60°`, dan Sensor Air `<= 650`.
+- **Kondisi Logika**: Depan `>= 100 cm`, Bawah normal `<= 42 cm`, Kemiringan `<= 60°`, dan Sensor Air `<= 400`.
 - **Pengujian Fisik Riil**: Arahkan tongkat ke ruang terbuka tanpa ada halangan di depan maupun turunan di bawah.
 - **Simulasi Serial / Dashboard**: Ketik `NORMAL` atau `DEMO OFF` lalu Enter.
 - **Respon Aktuator**:
