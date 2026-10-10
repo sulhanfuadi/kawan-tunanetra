@@ -97,6 +97,7 @@ unsigned long overridePatternUntilMs = 0;
 bool overrideBuzzer = false;
 bool manualBuzzerState = false;
 unsigned long overrideBuzzerUntilMs = 0;
+bool buzzerMuted = false; // Mode Senyap: Mematikan suara buzzer fisik untuk kemudahan debug
 
 void processSerialCommand(String cmd);
 void checkSerialInput();
@@ -357,6 +358,7 @@ void processSerialCommand(String cmd) {
     Serial.println(F("  MOTOR ON/OFF  -> Nyalakan / matikan motor getar terus-menerus"));
     Serial.println(F("  TEST BUZZER   -> Bunyikan buzzer pola beep selama 1.5 detik (Pin D6)"));
     Serial.println(F("  BUZZER ON/OFF -> Nyalakan / matikan buzzer terus-menerus"));
+    Serial.println(F("  MUTE ON/OFF   -> Mode Senyap: Matikan / nyalakan buzzer untuk debug"));
     Serial.println(F("  VOL <5-255>   -> Atur volume buzzer PWM (misal: VOL 35 lembut, VOL 120 sedang)"));
     Serial.println(F("  TEST OUTPUT   -> Self-test motor getar & buzzer bersamaan"));
     Serial.println(F("  STOP          -> Matikan semua uji aktuator manual"));
@@ -644,6 +646,27 @@ void processSerialCommand(String cmd) {
     return;
   }
 
+  if (upper == "MUTE" || upper == "MUTE ON" || upper == "MUTE:ON" || upper == "MUTE 1" || upper == "BUZZER MUTE" || upper == "SILENT") {
+    buzzerMuted = true;
+    driveBuzzer(false);
+    Serial.println(F("[BUZZER] MODE SENYAP DIAKTIFKAN: Buzzer fisik dimatikan untuk debug (Ketik MUTE OFF untuk mengaktifkan kembali)."));
+    return;
+  }
+
+  if (upper == "UNMUTE" || upper == "MUTE OFF" || upper == "MUTE:OFF" || upper == "MUTE 0" || upper == "BUZZER UNMUTE" || upper == "LOUD") {
+    buzzerMuted = false;
+    Serial.println(F("[BUZZER] MODE SENYAP DIMATIKAN: Suara buzzer diaktifkan kembali."));
+    return;
+  }
+
+  if (upper == "MUTE TOGGLE" || upper == "BUZZER TOGGLE") {
+    buzzerMuted = !buzzerMuted;
+    if (buzzerMuted) driveBuzzer(false);
+    Serial.print(F("[BUZZER] Status Mode Senyap: "));
+    Serial.println(buzzerMuted ? F("AKTIF (MUTED)") : F("NONAKTIF (UNMUTED)"));
+    return;
+  }
+
   if (upper == "TEST OUTPUT" || upper == "TEST ACTUATOR" || upper == "TEST ACTUATORS" || upper == "TEST:ACTUATORS") {
     Serial.println(F("[UJI AKTUATOR] Memulai Self-Test Semua Aktuator: Motor getar lalu Buzzer..."));
     selfTest();
@@ -914,6 +937,14 @@ bool buzzerPattern(AlertState state, unsigned long now) {
 }
 
 void driveBuzzer(bool on) {
+  if (buzzerMuted) {
+#if WOKWI_SIMULATION
+    noTone(PIN_BUZZER);
+#else
+    analogWrite(PIN_BUZZER, 0);
+#endif
+    return;
+  }
 #if WOKWI_SIMULATION
   if (on) tone(PIN_BUZZER, 1000);
   else noTone(PIN_BUZZER);
@@ -1129,11 +1160,16 @@ void loop() {
     Serial.print(vibrationOn ? F("ON") : F("OFF"));
     Serial.print(F(" | Buzzer: "));
     if (activeState == FALL_ALERT) {
-      Serial.println(F("SOS"));
+      Serial.print(F("SOS"));
     } else if (activeState == OBJECT_NEAR) {
-      Serial.println(F("BEEP"));
+      Serial.print(F("BEEP"));
     } else {
-      Serial.println(F("DIAM"));
+      Serial.print(F("DIAM"));
+    }
+    if (buzzerMuted) {
+      Serial.println(F(" [MUTED]"));
+    } else {
+      Serial.println();
     }
   }
   delay(20);

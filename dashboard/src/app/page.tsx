@@ -10,6 +10,7 @@ import {
   Droplets,
   Vibrate,
   Volume2,
+  VolumeX,
   Sliders,
   Moon,
   Sun,
@@ -122,6 +123,11 @@ const translations = {
     idle: "IDLE (OFF)",
     sosAlarm: "ALARM SOS",
     silent: "DIAM (OFF)",
+    buzzerMuted: "SENYAP (MUTED)",
+    buzzerMuteBtn: "Buzzer: MUTE",
+    buzzerUnmuteBtn: "Buzzer: ON",
+    muteBuzzerTitle: "Mode Senyap: Matikan suara buzzer fisik untuk debug",
+    unmuteBuzzerTitle: "Mode Senyap Aktif: Klik untuk menyalakan suara buzzer kembali",
     
     // Sensors
     frontObstacle: "Rintangan Depan",
@@ -291,6 +297,11 @@ const translations = {
     idle: "IDLE (OFF)",
     sosAlarm: "SOS ALARM",
     silent: "SILENT (OFF)",
+    buzzerMuted: "MUTED (SILENT)",
+    buzzerMuteBtn: "Buzzer: MUTE",
+    buzzerUnmuteBtn: "Buzzer: ON",
+    muteBuzzerTitle: "Silent Mode: Silence physical buzzer sound for debugging",
+    unmuteBuzzerTitle: "Silent Mode Active: Click to restore physical buzzer sound",
     
     // Sensors
     frontObstacle: "Front Obstacle",
@@ -540,6 +551,7 @@ export default function KatanaDashboard() {
   const [isRefreshingPorts, setIsRefreshingPorts] = useState<boolean>(false);
   const [isTestingMotor, setIsTestingMotor] = useState<boolean>(false);
   const [isTestingBuzzer, setIsTestingBuzzer] = useState<boolean>(false);
+  const [isBuzzerMuted, setIsBuzzerMuted] = useState<boolean>(false);
 
   // Serial references
   const portRef = useRef<any>(null);
@@ -594,6 +606,20 @@ export default function KatanaDashboard() {
         addLog(`[ERROR] Gagal kirim perintah: ${err.message}`);
       }
     }
+  };
+
+  // Toggle mode senyap (mute/unmute buzzer untuk debugging)
+  const toggleBuzzerMute = () => {
+    const nextMute = !isBuzzerMuted;
+    setIsBuzzerMuted(nextMute);
+    if (isConnected) {
+      sendSerial(nextMute ? "MUTE ON" : "MUTE OFF");
+    }
+    addLog(
+      nextMute
+        ? "[BUZZER] Mode Senyap diaktifkan: Suara Buzzer fisik dimatikan untuk debug."
+        : "[BUZZER] Mode Senyap dinonaktifkan: Suara Buzzer fisik diaktifkan kembali."
+    );
   };
 
   // Monitor physical USB plug/unplug events
@@ -1464,8 +1490,14 @@ export default function KatanaDashboard() {
       const motor = line.match(/Motor:\s*(ON|OFF)/i);
       if (motor) parsedMotor = motor[1].toUpperCase();
 
-      const buz = line.match(/Buzzer:\s*(SOS|DIAM)/i);
+      const buz = line.match(/Buzzer:\s*(SOS|DIAM|BEEP)/i);
       if (buz) parsedBuzzer = buz[1].toUpperCase();
+
+      if (line.includes("[MUTED]")) {
+        setIsBuzzerMuted(true);
+      } else if (buz && !line.includes("[MUTED]")) {
+        setIsBuzzerMuted(false);
+      }
 
       setData((prev) => {
         const next: TelemetryData = { ...prev };
@@ -1558,6 +1590,13 @@ export default function KatanaDashboard() {
         }
         return next;
       });
+    }
+
+    // 3. Feedback Respon Perintah Serial Khusus Buzzer Mode Senyap
+    if (line.includes("[BUZZER] MODE SENYAP DIAKTIFKAN") || line.includes("Status Mode Senyap: AKTIF")) {
+      setIsBuzzerMuted(true);
+    } else if (line.includes("[BUZZER] MODE SENYAP DIMATIKAN") || line.includes("Status Mode Senyap: NONAKTIF")) {
+      setIsBuzzerMuted(false);
     }
   };
 
@@ -1986,6 +2025,24 @@ export default function KatanaDashboard() {
               <span className="text-[11px] font-semibold">{isDemoMode ? t.demoOn : t.demoOff}</span>
             </button>
 
+            {/* Buzzer Mute/Unmute Toggle Button (Mode Senyap) */}
+            <button
+              onClick={toggleBuzzerMute}
+              title={isBuzzerMuted ? t.unmuteBuzzerTitle : t.muteBuzzerTitle}
+              className={`flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-mono font-medium transition-all cursor-pointer shrink-0 ${
+                isBuzzerMuted
+                  ? "bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700/50 shadow-2xs"
+                  : "bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700"
+              }`}
+            >
+              {isBuzzerMuted ? (
+                <VolumeX className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              ) : (
+                <Volume2 className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400 shrink-0" />
+              )}
+              <span className="text-[11px] font-semibold">{isBuzzerMuted ? t.buzzerMuteBtn : t.buzzerUnmuteBtn}</span>
+            </button>
+
             {/* Connect USB Button (Fixed Width 176px / w-44) */}
             {!isConnected ? (
               <button
@@ -2118,20 +2175,43 @@ export default function KatanaDashboard() {
               </div>
             </div>
 
-            <div className="w-44 h-12 flex items-center gap-2.5 px-3 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs shrink-0">
-              <Volume2 className="w-4 h-4 text-zinc-500 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[9px] font-mono text-zinc-400 uppercase font-semibold">
-                  {t.buzzer} (D6 BC547)
+            <div
+              onClick={toggleBuzzerMute}
+              title={isBuzzerMuted ? t.unmuteBuzzerTitle : t.muteBuzzerTitle}
+              className={`w-44 h-12 flex items-center gap-2.5 px-3 rounded-xl bg-white dark:bg-zinc-900 border transition-all cursor-pointer shadow-2xs shrink-0 select-none ${
+                isBuzzerMuted
+                  ? "border-amber-300 dark:border-amber-700/50 bg-amber-50/40 dark:bg-amber-950/20"
+                  : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700"
+              }`}
+            >
+              {isBuzzerMuted ? (
+                <VolumeX className="w-4 h-4 text-amber-500 shrink-0" />
+              ) : (
+                <Volume2 className="w-4 h-4 text-zinc-500 shrink-0" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between text-[9px] font-mono text-zinc-400 uppercase font-semibold">
+                  <span>{t.buzzer} (D6 BC547)</span>
+                  {isBuzzerMuted && (
+                    <span className="text-[8px] font-bold text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/60 px-1 rounded">
+                      MUTE
+                    </span>
+                  )}
                 </div>
                 <div
                   className={`text-xs font-mono font-bold truncate ${
-                    data.buzzer.includes("SOS")
+                    isBuzzerMuted
+                      ? "text-amber-600 dark:text-amber-400"
+                      : data.buzzer.includes("SOS")
                       ? "text-rose-600 dark:text-rose-400 animate-pulse"
                       : "text-zinc-500"
                   }`}
                 >
-                  {data.buzzer.includes("SOS") ? t.sosAlarm : t.silent}
+                  {isBuzzerMuted
+                    ? (data.buzzer.includes("SOS") ? "SOS [MUTED]" : t.buzzerMuted)
+                    : data.buzzer.includes("SOS")
+                    ? t.sosAlarm
+                    : t.silent}
                 </div>
               </div>
             </div>
@@ -3734,6 +3814,18 @@ export default function KatanaDashboard() {
                     className="px-2 py-1 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-600 dark:text-emerald-400 rounded-lg font-mono text-[11px] font-semibold hover:border-emerald-400 cursor-pointer"
                   >
                     NORMAL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleBuzzerMute}
+                    title={isBuzzerMuted ? t.unmuteBuzzerTitle : t.muteBuzzerTitle}
+                    className={`px-2 py-1 border rounded-lg font-mono text-[11px] font-semibold transition-all cursor-pointer ${
+                      isBuzzerMuted
+                        ? "bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:border-amber-500"
+                        : "bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400"
+                    }`}
+                  >
+                    {isBuzzerMuted ? "MUTE (ON)" : "MUTE (OFF)"}
                   </button>
                 </div>
               </div>
