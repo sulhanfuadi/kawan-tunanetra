@@ -6,6 +6,7 @@ import {
   Unplug,
   Compass,
   Eye,
+  EyeOff,
   TrendingDown,
   Droplets,
   Vibrate,
@@ -573,6 +574,21 @@ export default function KatanaDashboard() {
   const [isTestingBuzzer, setIsTestingBuzzer] = useState<boolean>(false);
   const [isBuzzerMuted, setIsBuzzerMuted] = useState<boolean>(false);
   const [isMotorMuted, setIsMotorMuted] = useState<boolean>(false);
+  const [show3DVisualizer, setShow3DVisualizer] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("katana_show_3d");
+      return saved !== null ? saved === "true" : true;
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    if (mounted) {
+      try {
+        localStorage.setItem("katana_show_3d", String(show3DVisualizer));
+      } catch {}
+    }
+  }, [show3DVisualizer, mounted]);
 
   // Serial references
   const portRef = useRef<any>(null);
@@ -2682,16 +2698,24 @@ export default function KatanaDashboard() {
                   <span className="text-xs font-mono font-semibold text-zinc-400">° {t.unitDegrees}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  {data.mpuConnected && (
-                    <button
-                      type="button"
-                      onClick={() => sendSerial("CALIB")}
-                      title="Kalibrasi posisi tegak tongkat ke 0.0° saat berdiri tegak"
-                      className="px-2 py-0.5 text-[9px] font-mono font-bold rounded bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 transition-colors cursor-pointer"
-                    >
-                      Kalibrasi 0°
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShow3DVisualizer(!show3DVisualizer)}
+                    title={show3DVisualizer ? "Sembunyikan interpretasi 3D tongkat" : "Tampilkan interpretasi 3D tongkat"}
+                    className="px-2 py-0.5 text-[9px] font-mono font-bold rounded bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    {show3DVisualizer ? (
+                      <>
+                        <EyeOff className="w-2.5 h-2.5 text-zinc-400" />
+                        <span>3D AKTIF</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-2.5 h-2.5 text-emerald-500" />
+                        <span className="text-emerald-500 font-bold">3D OFF</span>
+                      </>
+                    )}
+                  </button>
                   <span className="text-[10px] font-mono font-bold text-zinc-500">
                     {!data.mpuConnected
                       ? t.bracketOffline
@@ -2831,24 +2855,54 @@ export default function KatanaDashboard() {
 
         </section>
 
-        {/* Dual Workstation Console: 2D CAD Visualizer & Diagnostics/Serial Deck */}
+        {/* Workstation Console: 3D Cane IMU Orientation & Diagnostics Deck */}
         <main className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs overflow-hidden">
           
-          <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-zinc-200 dark:divide-zinc-800">
-            
-            {/* Left 7 Columns: 3D Cane IMU Orientation & Calibration Lab */}
-            <div className="lg:col-span-7 flex flex-col p-3">
-              <Cane3DVisualizer
-                rawTiltDeg={data.tiltDeg}
-                mpuConnected={data.mpuConnected}
-                frontConnected={data.frontConnected}
-                downConnected={data.downConnected}
-                isSimMode={isDemoMode}
-              />
+          {/* Workstation Top Navigation Bar */}
+          <div className="px-4 py-2 bg-zinc-50 dark:bg-zinc-900/60 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Compass className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="text-[11px] font-mono font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
+                {show3DVisualizer ? "Interpretasi 3D Tongkat & Diagnostik" : "Diagnostik Hardware & Live Terminal"}
+              </span>
             </div>
+            <button
+              type="button"
+              onClick={() => setShow3DVisualizer(!show3DVisualizer)}
+              className="px-2.5 py-1 text-xs font-mono rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+              title={show3DVisualizer ? "Sembunyikan visualisasi 3D tongkat" : "Tampilkan interpretasi 3D tongkat"}
+            >
+              {show3DVisualizer ? (
+                <>
+                  <EyeOff className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Sembunyikan 3D</span>
+                </>
+              ) : (
+                <>
+                  <Eye className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">Tampilkan Interpretasi 3D</span>
+                </>
+              )}
+            </button>
+          </div>
 
-            {/* Right 5 Columns: Diagnostics Deck & Live Terminal */}
-            <div className="lg:col-span-5 flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800 bg-zinc-50/20 dark:bg-zinc-900/10">
+          <div className={`grid grid-cols-1 ${show3DVisualizer ? "lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x" : ""} divide-zinc-200 dark:divide-zinc-800`}>
+            
+            {/* Left 7 Columns: 3D Cane IMU Orientation */}
+            {show3DVisualizer && (
+              <div className="lg:col-span-7 flex flex-col p-3">
+                <Cane3DVisualizer
+                  rawTiltDeg={data.tiltDeg}
+                  mpuConnected={data.mpuConnected}
+                  frontConnected={data.frontConnected}
+                  downConnected={data.downConnected}
+                  isSimMode={isDemoMode}
+                />
+              </div>
+            )}
+
+            {/* Right Columns: Diagnostics Deck & Live Terminal */}
+            <div className={`${show3DVisualizer ? "lg:col-span-5" : "lg:col-span-12"} flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800 bg-zinc-50/20 dark:bg-zinc-900/10`}>
               
               {/* Hardware Pin Status Deck */}
               <div className="p-4 space-y-2.5">
@@ -2860,7 +2914,7 @@ export default function KatanaDashboard() {
                   <span className="text-[10px] font-mono text-zinc-400">ATmega328P</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-1.5 text-xs">
+                <div className={`grid grid-cols-2 ${show3DVisualizer ? "" : "sm:grid-cols-3 lg:grid-cols-6"} gap-1.5 text-xs`}>
                   
                   {/* Pin 1: Front */}
                   <div className="p-2 bg-white dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 rounded-lg flex items-center justify-between">
@@ -3280,14 +3334,6 @@ export default function KatanaDashboard() {
                     className="px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 font-mono text-[10px] font-bold cursor-pointer"
                   >
                     {t.normalPreset}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => sendSerial("CALIB")}
-                    title="Kirim perintah CALIB untuk mengunci posisi tegak ke 0.0°"
-                    className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 font-mono text-[10px] font-bold cursor-pointer"
-                  >
-                    KALIBRASI 0°
                   </button>
                 </div>
 
