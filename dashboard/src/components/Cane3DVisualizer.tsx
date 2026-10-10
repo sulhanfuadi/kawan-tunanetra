@@ -124,6 +124,7 @@ export default function Cane3DVisualizer({
   const [interactMode, setInteractMode] = useState<"orbit" | "dragCane">("orbit");
   const [draggedPitch, setDraggedPitch] = useState<number>(15);
   const [draggedRoll, setDraggedRoll] = useState<number>(0);
+  const [draggedYaw, setDraggedYaw] = useState<number>(0);
   const [isCanePosed, setIsCanePosed] = useState<boolean>(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
@@ -187,8 +188,9 @@ export default function Cane3DVisualizer({
     phi: Math.PI / 3
   });
 
-  const targetRotationRef = useRef<{ pitch: number; roll: number }>({ pitch: 0, roll: 0 });
-  const currentRotationRef = useRef<{ pitch: number; roll: number }>({ pitch: 0, roll: 0 });
+  const dragButtonRef = useRef<number>(0);
+  const targetRotationRef = useRef<{ pitch: number; roll: number; yaw: number }>({ pitch: 0, roll: 0, yaw: 0 });
+  const currentRotationRef = useRef<{ pitch: number; roll: number; yaw: number }>({ pitch: 0, roll: 0, yaw: 0 });
 
   // Load from LocalStorage on mount
   useEffect(() => {
@@ -271,15 +273,17 @@ export default function Cane3DVisualizer({
     if (interactMode === "dragCane") {
       targetRotationRef.current = {
         pitch: THREE.MathUtils.degToRad(draggedPitch),
-        roll: THREE.MathUtils.degToRad(draggedRoll)
+        roll: THREE.MathUtils.degToRad(draggedRoll),
+        yaw: THREE.MathUtils.degToRad(draggedYaw)
       };
     } else {
       targetRotationRef.current = {
         pitch: THREE.MathUtils.degToRad(effectivePitch),
-        roll: THREE.MathUtils.degToRad(effectiveRoll)
+        roll: THREE.MathUtils.degToRad(effectiveRoll),
+        yaw: 0
       };
     }
-  }, [interactMode, draggedPitch, draggedRoll, effectivePitch, effectiveRoll]);
+  }, [interactMode, draggedPitch, draggedRoll, draggedYaw, effectivePitch, effectiveRoll]);
 
   // Show/Hide 3D Manipulator Handle
   useEffect(() => {
@@ -333,7 +337,9 @@ export default function Cane3DVisualizer({
         depthWrite: false
       });
 
-      return new THREE.Mesh(geometry, material);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.rotation.y = -Math.PI / 2; // Selaraskan sektor busur derajat ke sumbu +Z (arah hadap maju tongkat)
+      return mesh;
     };
 
     const safeMax = Math.min(dropThreshold, walkingStance + 6);
@@ -343,7 +349,7 @@ export default function Cane3DVisualizer({
     const cautionMesh = createArcWedge(safeMax, fallThreshold, 0xf59e0b, 0.22);
     group.add(cautionMesh);
 
-    const fallMesh = createArcWedge(fallThreshold, 88, 0xf43f5e, 0.26);
+    const fallMesh = createArcWedge(fallThreshold, 90, 0xf43f5e, 0.26); // Menjangkau lantai 90°
     group.add(fallMesh);
   }, [showAngleZones, walkingStance, dropThreshold, fallThreshold]);
 
@@ -602,11 +608,13 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
 
     // Group for 3D Angle Zones
     const zonesGroup = new THREE.Group();
+    zonesGroup.rotation.order = "YXZ";
     zoneMeshesRef.current = zonesGroup;
     scene.add(zonesGroup);
 
     // 3D Cane Model
     const caneRoot = new THREE.Group();
+    caneRoot.rotation.order = "YXZ";
     caneGroupRef.current = caneRoot;
     scene.add(caneRoot);
 
@@ -757,10 +765,16 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
 
       cur.pitch += (target.pitch - cur.pitch) * factor;
       cur.roll += (target.roll - cur.roll) * factor;
+      cur.yaw += (target.yaw - cur.yaw) * factor;
 
       if (caneGroupRef.current) {
+        caneGroupRef.current.rotation.y = cur.yaw;
         caneGroupRef.current.rotation.x = cur.pitch;
         caneGroupRef.current.rotation.z = cur.roll;
+      }
+
+      if (zoneMeshesRef.current) {
+        zoneMeshesRef.current.rotation.y = cur.yaw;
       }
 
       renderer.render(scene, camera);
@@ -807,15 +821,23 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
     prevMousePosRef.current = { x: e.clientX, y: e.clientY };
 
     if (interactMode === "dragCane") {
-      // Direct 3D cane manipulation
-      setDraggedPitch((prev) => {
-        const next = prev + deltaY * 0.35;
-        return Math.max(-85, Math.min(85, Math.round(next * 10) / 10));
-      });
-      setDraggedRoll((prev) => {
-        const next = prev + deltaX * 0.35;
-        return Math.max(-60, Math.min(60, Math.round(next * 10) / 10));
-      });
+      if (e.buttons === 2 || e.shiftKey) {
+        // Drag Kanan atau Shift + Drag Kiri: YAW (Putar Arah Hadap Horizontal 360°)
+        setDraggedYaw((prev) => {
+          const next = (prev + deltaX * 0.5) % 360;
+          return next < 0 ? next + 360 : Math.round(next * 10) / 10;
+        });
+      } else {
+        // Drag Kiri: PITCH & ROLL (Menjangkau 90° penuh hingga rebah rata di lantai)
+        setDraggedPitch((prev) => {
+          const next = prev + deltaY * 0.35;
+          return Math.max(-90, Math.min(90, Math.round(next * 10) / 10));
+        });
+        setDraggedRoll((prev) => {
+          const next = prev + deltaX * 0.35;
+          return Math.max(-90, Math.min(90, Math.round(next * 10) / 10));
+        });
+      }
       setIsCanePosed(true);
     } else {
       // Orbit camera
@@ -1015,6 +1037,9 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
+        onContextMenu={(e) => {
+          if (interactMode === "dragCane") e.preventDefault();
+        }}
         className={`w-full ${
           isFullscreen ? "flex-1 min-h-0" : "h-[480px]"
         } relative select-none bg-radial from-zinc-900 to-zinc-950 ${
@@ -1036,8 +1061,8 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
           </div>
         </div>
 
-        <div className={`absolute bottom-3 left-3 text-[10px] font-mono text-zinc-500 pointer-events-none bg-zinc-950/80 px-2 py-1 rounded-md border border-zinc-900 ${interactMode === "dragCane" ? "hidden xl:flex" : "flex"} items-center gap-2`}>
-          <span>{interactMode === "dragCane" ? "🖐️ Drag mouse di canvas untuk mengarahkan tongkat" : "💡 Drag mouse rotasi kamera | Scroll zoom"}</span>
+        <div className={`absolute bottom-3 left-3 text-[10px] font-mono text-zinc-500 pointer-events-none bg-zinc-950/80 px-2 py-1 rounded-md border border-zinc-900 ${interactMode === "dragCane" ? "hidden 2xl:flex" : "flex"} items-center gap-2`}>
+          <span>{interactMode === "dragCane" ? "🖐️ Drag Kiri: Kemiringan | Drag Kanan / Shift+Drag: Putar Hadap" : "💡 Drag mouse rotasi kamera | Scroll zoom"}</span>
           <span className="text-zinc-600">|</span>
           <span className={isStable ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
             {isStable ? "🟢 Sensor Stabil" : "🟡 Sensor Goyang / Bergerak"}
@@ -1064,6 +1089,12 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
               {interactMode === "dragCane" ? `${draggedRoll.toFixed(1)}°` : `${effectiveRoll.toFixed(1)}°`}
             </span>
           </div>
+          <div className="flex justify-between">
+            <span className="text-zinc-400">Yaw (Arah Hadap):</span>
+            <span className="font-bold text-sky-400">
+              {interactMode === "dragCane" ? `${draggedYaw.toFixed(1)}°` : "0.0°"}
+            </span>
+          </div>
           <div className="flex justify-between border-t border-zinc-800 pt-1">
             <span className="text-zinc-400">Net Kemiringan:</span>
             <span className="font-bold text-emerald-400">
@@ -1082,51 +1113,130 @@ const float CANE_NOISE_DEADBAND_DEG = ${noiseDeadband.toFixed(1)}f; // Filter pe
 
         {/* Direct Drag-to-Align Bottom Action Dock (Unobtrusive) */}
         {interactMode === "dragCane" && (
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur-md border border-amber-500/70 px-3.5 py-2 rounded-xl shadow-2xl flex flex-wrap items-center justify-between gap-3 z-20 max-w-2xl w-[94%] sm:w-auto animate-in fade-in slide-in-from-bottom-2">
-            <div className="flex items-center gap-2.5">
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-400 font-bold text-xs">
-                <Hand className="w-3.5 h-3.5 animate-pulse" />
-                <span>Drag Mode Aktif</span>
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur-md border border-amber-500/70 p-2.5 rounded-xl shadow-2xl flex flex-col gap-2 z-20 max-w-3xl w-[96%] sm:w-auto animate-in fade-in slide-in-from-bottom-2">
+            {/* Top row: Status, Live Telemetry, Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-400 font-bold text-xs">
+                  <Hand className="w-3.5 h-3.5 animate-pulse" />
+                  <span>Drag Mode</span>
+                </div>
+
+                <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-300">
+                  <span className="text-zinc-400">Model:</span>
+                  <span className="text-amber-400 font-bold">
+                    P:{draggedPitch.toFixed(1)}° R:{draggedRoll.toFixed(1)}° Y:{draggedYaw.toFixed(0)}°
+                  </span>
+                  <span className="text-zinc-600 hidden sm:inline">|</span>
+                  <span className="text-zinc-400 hidden sm:inline">Fisik:</span>
+                  <span className="text-zinc-200 hidden sm:inline">
+                    {rawTiltDeg !== null ? `${rawTiltDeg.toFixed(1)}°` : "--"}
+                  </span>
+                  <span className="text-zinc-600">|</span>
+                  <span className="text-zinc-400">Offset ΔP:</span>
+                  <span className="text-emerald-400 font-bold">
+                    {(draggedPitch - (rawTiltDeg ?? 0)).toFixed(1)}°
+                  </span>
+                </div>
               </div>
 
-              <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] text-zinc-300">
-                <span className="text-zinc-400">Target 3D:</span>
-                <span className="text-amber-400 font-bold">
-                  P:{draggedPitch.toFixed(1)}° R:{draggedRoll.toFixed(1)}°
-                </span>
-                <span className="text-zinc-600">|</span>
-                <span className="text-zinc-400">Fisik:</span>
-                <span className="text-zinc-200">
-                  {rawTiltDeg !== null ? `${rawTiltDeg.toFixed(1)}°` : "--"}
-                </span>
-                <span className="text-zinc-600">|</span>
-                <span className="text-zinc-400">Offset ΔP:</span>
-                <span className="text-emerald-400 font-bold">
-                  {(draggedPitch - (rawTiltDeg ?? 0)).toFixed(1)}°
-                </span>
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={handleAutoAlignSensor}
+                  className="py-1.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-lg shadow-md shadow-emerald-950 flex items-center gap-1.5 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>✨ Cocokkan Sensor</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInteractMode("orbit");
+                    setIsCanePosed(false);
+                  }}
+                  className="py-1.5 px-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-mono text-xs rounded-lg border border-zinc-700 transition-all cursor-pointer"
+                >
+                  Selesai
+                </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 ml-auto">
-              <button
-                type="button"
-                onClick={handleAutoAlignSensor}
-                className="py-1.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-lg shadow-md shadow-emerald-950 flex items-center gap-1.5 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>✨ Cocokkan Sensor</span>
-              </button>
-
+            {/* Bottom row: Quick Preset Pose & Yaw Buttons */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-zinc-800 text-[10px] font-mono">
+              <span className="text-zinc-400 font-bold">Pose Cepat:</span>
               <button
                 type="button"
                 onClick={() => {
-                  setInteractMode("orbit");
-                  setIsCanePosed(false);
+                  setDraggedPitch(0);
+                  setDraggedRoll(0);
+                  setIsCanePosed(true);
                 }}
-                className="py-1.5 px-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-mono text-xs rounded-lg border border-zinc-700 transition-all cursor-pointer"
+                className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors"
+                title="Tegakkan tongkat lurus 0° vertikal"
               >
-                Selesai
+                0° Tegak
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDraggedPitch(15);
+                  setDraggedRoll(0);
+                  setIsCanePosed(true);
+                }}
+                className="px-2 py-0.5 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 rounded border border-emerald-800 transition-colors"
+                title="Pose melangkah normal 15°"
+              >
+                15° Jalan
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDraggedPitch(90);
+                  setDraggedRoll(0);
+                  setIsCanePosed(true);
+                }}
+                className="px-2 py-0.5 bg-rose-950 hover:bg-rose-900 text-rose-300 rounded border border-rose-800 transition-colors"
+                title="Rebahkan tongkat 90° rata di lantai (kondisi jatuh)"
+              >
+                90° Jatuh di Lantai
+              </button>
+
+              <span className="text-zinc-600 px-1">|</span>
+              <span className="text-zinc-400 font-bold">Arah Hadap (Yaw):</span>
+              <button
+                type="button"
+                onClick={() => setDraggedYaw(0)}
+                className={`px-1.5 py-0.5 rounded border transition-colors ${draggedYaw === 0 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
+              >
+                0° Depan
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraggedYaw(90)}
+                className={`px-1.5 py-0.5 rounded border transition-colors ${draggedYaw === 90 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
+              >
+                90° Kanan
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraggedYaw(180)}
+                className={`px-1.5 py-0.5 rounded border transition-colors ${draggedYaw === 180 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
+              >
+                180° Blkg
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraggedYaw(270)}
+                className={`px-1.5 py-0.5 rounded border transition-colors ${draggedYaw === 270 ? "bg-sky-600 text-white border-sky-500 font-bold" : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200"}`}
+              >
+                270° Kiri
+              </button>
+
+              <span className="text-zinc-500 hidden xl:inline ml-auto">
+                🖱️ Drag Kiri: Kemiringan | Drag Kanan / Shift: Putar Hadap
+              </span>
             </div>
           </div>
         )}
